@@ -12,6 +12,8 @@ const API = {
   clearSession() {
     sessionStorage.removeItem('sessionToken');
     sessionStorage.removeItem('sessionRole');
+    sessionStorage.removeItem('sessionProg');
+    sessionStorage.removeItem('sessionExpiry');
   },
 
   // ==========================================
