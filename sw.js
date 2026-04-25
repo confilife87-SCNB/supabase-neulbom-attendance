@@ -1,9 +1,10 @@
-const CACHE_NAME = 'neulbom-pwa-v4-2';
+const CACHE_NAME = 'neulbom-supabase-v1';
 
 const STATIC_ASSETS = [
   './',
   './index.html',
   './config.js',
+  './supabase.js',
   './api.js',
   './sw.js',
   './manifest.json',
