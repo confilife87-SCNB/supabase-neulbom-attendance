@@ -4471,14 +4471,17 @@ async function generateAttendancePDF(month, targetProg) {
 
     html += '</div>'; // .pdf-wrap
 
-    // 6. 새 창에서 인쇄
-    const printWin = window.open('', '_blank');
-    printWin.document.write(html);
-    printWin.document.close();
-    printWin.onload = () => {
-      printWin.focus();
-      printWin.print();
-    };
+    // 6. Blob 방식으로 새 탭 열기 (팝업 차단 우회)
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const blobUrl = URL.createObjectURL(blob);
+    const printLink = document.createElement('a');
+    printLink.href = blobUrl;
+    printLink.target = '_blank';
+    printLink.rel = 'noopener noreferrer';
+    document.body.appendChild(printLink);
+    printLink.click();
+    document.body.removeChild(printLink);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
 
   } catch (err) {
     showToast('❌ 출석부 생성 실패: ' + err.message);
@@ -4625,13 +4628,17 @@ async function generateActivityPDF(month, targetProg) {
 
     html += '</div>';
 
-    const printWin = window.open('', '_blank');
-    printWin.document.write(html);
-    printWin.document.close();
-    printWin.onload = () => {
-      printWin.focus();
-      printWin.print();
-    };
+    // Blob 방식으로 새 탭 열기 (팝업 차단 우회)
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const blobUrl = URL.createObjectURL(blob);
+    const printLink = document.createElement('a');
+    printLink.href = blobUrl;
+    printLink.target = '_blank';
+    printLink.rel = 'noopener noreferrer';
+    document.body.appendChild(printLink);
+    printLink.click();
+    document.body.removeChild(printLink);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
 
   } catch (err) {
     showToast('❌ 활동일지 생성 실패: ' + err.message);
