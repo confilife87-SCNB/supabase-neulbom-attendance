@@ -748,9 +748,26 @@ const API = {
   },
 
   async updateActivityLog(rowIndex, newContent) {
-    if (!activityLogData[rowIndex]) return false;
-    const id = activityLogData[rowIndex]._id;
-    await SUPABASE.update('activity_logs', { content: newContent }, `?id=eq.${id}`);
+    // rowIndex가 실제 Supabase id인 경우 처리
+    if (!rowIndex) return false;
+
+    // rowIndex가 숫자면 배열 인덱스, 문자면 uuid로 처리
+    if (typeof rowIndex === 'string' && rowIndex.includes('-')) {
+      // uuid 방식
+      await SUPABASE.update(
+        'activity_logs',
+        { content: newContent },
+        `?id=eq.${rowIndex}`
+      );
+    } else {
+      // 배열 인덱스 방식 — activityLogData는 index.html에 있으므로
+      // api.js에서 직접 접근 불가 → id를 직접 받도록 변경
+      await SUPABASE.update(
+        'activity_logs',
+        { content: newContent },
+        `?id=eq.${rowIndex}`
+      );
+    }
     return true;
   },
 
