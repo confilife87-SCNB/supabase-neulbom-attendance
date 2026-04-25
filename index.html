@@ -333,23 +333,6 @@
 
   <div id="loading"><div class="spinner"></div><div class="load-text">데이터 연동 중...</div></div>
 
-  <!-- secretToken 최초 설정 화면 -->
-<div id="setup-view" style="display:none; padding:40px 24px; flex-direction:column; align-items:center; gap:16px; flex-grow:1;">
-  <div style="font-size:3rem;">🔐</div>
-  <div style="font-weight:700; font-size:1.1rem; text-align:center;">최초 설정</div>
-  <div style="font-size:0.85rem; color:var(--text-sub); text-align:center; line-height:1.6;">
-    관리자로부터 받은 접속 코드와 DB 키를 입력하세요.<br>최초 1회만 입력하면 됩니다.
-  </div>
-  <div class="select-group" style="width:100%;">
-    <label>접속 코드 (secretToken)</label>
-    <input type="password" id="setup-token-input" placeholder="접속 코드 입력">
-  </div>
-  <div class="select-group" style="width:100%;">
-    <label>DB 키 (Supabase anon key)</label>
-    <input type="password" id="setup-supabase-key-input" placeholder="DB 키 입력">
-  </div>
-  <button class="btn-action blue" style="width:100%;" onclick="saveSetupToken()">확인</button>
-</div>
   <!-- ==========================================
        🚪 3단 대문 포털
        ========================================== -->
@@ -1490,16 +1473,14 @@ document.addEventListener("DOMContentLoaded", async function() {
   document.getElementById('attendance-date').value = todayStr;
   document.getElementById('admin-date').value = todayStr;
 
-  // secretToken 확인
-  if (!API.getSecretToken() || !SUPABASE.getKey()) {
-    document.getElementById('portal-view').style.display = 'none';
-    document.getElementById('setup-view').style.display = 'flex';
-    return;
-  }
-  restoreLastLogin();
+  // ✅ 최초 인증 제거 — settings 테이블에서 anon key 자동 로딩
   showLoading(true);
 
   try {
+    // 1. anon key 로딩 (인증 없이 settings._appkey에서 가져옴)
+    await SUPABASE.loadKey();
+
+    // 2. 초기 데이터 로딩
     const data = await API.getInitialData();
 
     programData = data.programStructure;
@@ -1518,8 +1499,11 @@ document.addEventListener("DOMContentLoaded", async function() {
       gSel.appendChild(opt);
     });
 
+    // 3. 마지막 로그인 복원
+    restoreLastLogin();
+
   } catch (err) {
-    showToast("❌ 초기 데이터 로딩 실패: " + err.message);
+    showToast("❌ 초기화 실패: " + err.message);
   } finally {
     showLoading(false);
   }
@@ -1544,19 +1528,6 @@ document.addEventListener("DOMContentLoaded", async function() {
       .catch(err => console.warn('SW 등록 실패:', err));
   }
 });
-  
-function saveSetupToken() {
-  var token = document.getElementById('setup-token-input').value.trim();
-  var supabaseKey = document.getElementById('setup-supabase-key-input').value.trim();
-  if (!token) { showToast('접속 코드를 입력하세요.'); return; }
-  if (!supabaseKey) { showToast('DB 키를 입력하세요.'); return; }
-  API.setSecretToken(token);
-  SUPABASE.setKey(supabaseKey);
-  document.getElementById('setup-view').style.display = 'none';
-  document.getElementById('portal-view').style.display = 'flex';
-  showToast('✅ 설정 완료! 앱을 사용할 수 있습니다.');
-  location.reload();
-}
   
   // ⭐ 기억6: 빠른 로그인 — 최근 접속 정보 저장/복원
   function saveLastLogin(prog, day, period) {
