@@ -4271,6 +4271,583 @@ async function saveUserPwdChange() {
       showLoading(false);
     }
   }
+  // ==========================================
+// 📄 PDF 출석부 생성
+// ==========================================
+
+async function generateAttendancePDF(month, targetProg) {
+  showLoading(true);
+  document.querySelector('#loading .load-text').innerText = '📄 출석부 데이터 준비 중...';
+
+  try {
+    // 1. 데이터 조회
+    const [students, attendanceRaw, contacts, instructors] = await Promise.all([
+      SUPABASE.select('students', '?select=grade,class_num,name,program,perm_note'),
+      SUPABASE.select('attendance', `?month=eq.${encodeURIComponent(month)}&status=neq.휴강`),
+      SUPABASE.select('contacts', '?select=grade,class_num,name,phone'),
+      SUPABASE.select('instructors', '?select=program,instructor_name')
+    ]);
+
+    // 2. 맵 구성
+    const contactMap = {};
+    contacts.forEach(c => { contactMap[`${c.grade}_${c.class_num}_${c.name}`] = c.phone || ''; });
+
+    const instructorMap = {};
+    instructors.forEach(i => { instructorMap[i.program] = i.instructor_name; });
+
+    // 3. 프로그램 목록
+    let programs = [...new Set(students.map(s => s.program))].sort();
+    if (targetProg && targetProg !== '전체') {
+      programs = programs.filter(p => p === targetProg);
+    }
+
+    // 4. 출결기록 정리
+    const attendByProg = {};
+    const datesByProg = {};
+    const reasonsByProg = {};
+
+    attendanceRaw.forEach(r => {
+      if (!attendByProg[r.program]) attendByProg[r.program] = {};
+      if (!attendByProg[r.program][r.date]) attendByProg[r.program][r.date] = {};
+      const key = `${r.grade}_${r.class_num}_${r.name}`;
+      attendByProg[r.program][r.date][key] = r.status;
+
+      if (!datesByProg[r.program]) datesByProg[r.program] = {};
+      datesByProg[r.program][r.date] = true;
+
+      if (!reasonsByProg[r.program]) reasonsByProg[r.program] = {};
+      if (!reasonsByProg[r.program][key]) reasonsByProg[r.program][key] = [];
+      if (r.status !== '출석') {
+        reasonsByProg[r.program][key].push({ date: r.date, status: r.status, reason: r.reason || '' });
+      }
+    });
+
+    // 5. HTML 생성
+    let html = getAttendancePDFStyle();
+    html += '<div class="pdf-wrap">';
+
+    programs.forEach(progName => {
+      const progStudents = students.filter(s => s.program === progName);
+      const seen = {};
+      const studentList = [];
+      progStudents.forEach(s => {
+        const key = `${s.grade}_${s.class_num}_${s.name}`;
+        if (!seen[key]) {
+          seen[key] = true;
+          studentList.push({
+            key, grade: s.grade, classNum: s.class_num, name: s.name,
+            permNote: s.perm_note || '',
+            contact: contactMap[key] || ''
+          });
+        }
+      });
+
+      studentList.sort((a, b) => {
+        if (a.grade !== b.grade) return a.grade - b.grade;
+        if (a.classNum !== b.classNum) return a.classNum - b.classNum;
+        return a.name.localeCompare(b.name, 'ko-KR');
+      });
+
+      const classDates = Object.keys(datesByProg[progName] || {}).sort();
+      const numStudents = studentList.length;
+      const instructor = instructorMap[progName] || '';
+
+      // 동적 폰트 설정
+      let bodyFs, headerFs, symbolFs, remarkFs;
+      if (numStudents <= 10) {
+        bodyFs = 8; headerFs = 8; symbolFs = 10; remarkFs = 6;
+      } else if (numStudents <= 15) {
+        bodyFs = 8; headerFs = 8; symbolFs = 10; remarkFs = 6;
+      } else if (numStudents <= 20) {
+        bodyFs = 7; headerFs = 7; symbolFs = 9; remarkFs = 5.5;
+      } else {
+        bodyFs = 6; headerFs = 6; symbolFs = 8; remarkFs = 5;
+      }
+
+      const periodStart = classDates.length > 0 ? classDates[0] : '';
+      const periodEnd = classDates.length > 0 ? classDates[classDates.length - 1] : '';
+
+      const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+
+      html += `<div class="page">`;
+
+      // 제목
+      html += `<div class="title">2026년 순창초 늘봄학교 ( ${escapeHtml(progName)} ) 출석부</div>`;
+
+      // 기간/강사
+      html += `<div class="info-row">`;
+      html += `<span>• 기간 : ${formatKorDate(periodStart)} ~ ${formatKorDate(periodEnd)}</span>`;
+      html += `<span style="float:right">• 강사명 : ${escapeHtml(instructor)}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(서명)</span>`;
+      html += `</div>`;
+
+      // 출석부 표
+      html += `<table class="att-table" style="font-size:${bodyFs}pt">`;
+
+      // 헤더 행1: 날짜
+      html += `<tr>`;
+      html += `<th class="dark" rowspan="4" style="font-size:${headerFs}pt">학년</th>`;
+      html += `<th class="dark" rowspan="4" style="font-size:${headerFs}pt">반</th>`;
+      html += `<th class="dark" rowspan="4" style="font-size:${headerFs}pt">이름</th>`;
+      html += `<th class="light" style="font-size:${headerFs}pt">날&nbsp;짜</th>`;
+      for (let di = 0; di < 10; di++) {
+        const dateText = di < classDates.length ? parseInt(classDates[di].split('-')[2]) : '';
+        html += `<th class="light" style="font-size:${headerFs}pt">${dateText}</th>`;
+      }
+      html += `<th class="light" rowspan="3" style="font-size:${headerFs}pt">총<br>출석<br>일수</th>`;
+      html += `<th class="light" rowspan="3" style="font-size:${headerFs}pt">비고<br>(지각·결석<br>사유)</th>`;
+      html += `</tr>`;
+
+      // 헤더 행2: 요일
+      html += `<tr>`;
+      html += `<th class="light" style="font-size:${headerFs}pt">요&nbsp;일</th>`;
+      for (let di = 0; di < 10; di++) {
+        const dayText = di < classDates.length ? dayNames[new Date(classDates[di] + 'T00:00:00').getDay()] : '';
+        html += `<th class="light" style="font-size:${headerFs}pt">${dayText}</th>`;
+      }
+      html += `</tr>`;
+
+      // 헤더 행3: 차시
+      html += `<tr>`;
+      html += `<th class="light" style="font-size:${headerFs}pt">차&nbsp;시</th>`;
+      for (let di = 0; di < 10; di++) {
+        html += `<th class="light" style="font-size:${headerFs}pt">${di + 1}</th>`;
+      }
+      html += `</tr>`;
+
+      // 헤더 행4: 연락처
+      html += `<tr>`;
+      html += `<th class="gray" style="font-size:${headerFs}pt">연락처</th>`;
+      for (let di = 0; di < 10; di++) {
+        html += `<th class="gray" style="font-size:${headerFs}pt"></th>`;
+      }
+      html += `<th class="gray" style="font-size:${headerFs}pt"></th>`;
+      html += `<th class="gray" style="font-size:${headerFs}pt"></th>`;
+      html += `</tr>`;
+
+      // 학생 행
+      studentList.forEach(student => {
+        html += `<tr>`;
+        html += `<td style="font-size:${bodyFs}pt">${student.grade}</td>`;
+        html += `<td style="font-size:${bodyFs}pt">${student.classNum}</td>`;
+        html += `<td style="font-size:${bodyFs}pt; font-weight:bold">${escapeHtml(student.name)}</td>`;
+        html += `<td style="font-size:${bodyFs - 1}pt">${escapeHtml(student.contact)}</td>`;
+
+        let totalPresent = 0;
+        let firstDate = null;
+        let lastDate = null;
+
+        for (let di = 0; di < 10; di++) {
+          let symbol = '';
+          if (di < classDates.length) {
+            const dateRecords = (attendByProg[progName] || {})[classDates[di]] || {};
+            const status = dateRecords[student.key];
+            if (status) {
+              if (!firstDate) firstDate = classDates[di];
+              lastDate = classDates[di];
+              if (status === '출석') { symbol = '○'; totalPresent++; }
+              else if (status === '지각') { symbol = '⊗'; totalPresent++; }
+              else if (status === '조퇴') { symbol = '∅'; totalPresent++; }
+              else if (status === '결석') { symbol = '✖'; }
+            }
+          }
+          html += `<td style="font-size:${symbolFs}pt">${symbol}</td>`;
+        }
+
+        // 총출석
+        html += `<td style="font-size:${bodyFs}pt; font-weight:bold">${totalPresent > 0 ? totalPresent : ''}</td>`;
+
+        // 비고
+        const remarkParts = [];
+        if (student.permNote) remarkParts.push(student.permNote);
+        if (firstDate && classDates.length > 0 && firstDate !== classDates[0]) {
+          remarkParts.push(`중도입소(${parseInt(firstDate.split('-')[2])}일)`);
+        }
+        const reasons = (reasonsByProg[progName] || {})[student.key] || [];
+        reasons.forEach(r => {
+          if (r.reason) remarkParts.push(`${parseInt(r.date.split('-')[2])}일 ${r.status}-${r.reason}`);
+        });
+        html += `<td style="font-size:${remarkFs}pt; text-align:left">${escapeHtml(remarkParts.join(', '))}</td>`;
+        html += `</tr>`;
+      });
+
+      // 강사 확인 행
+      html += `<tr class="footer-row">`;
+      html += `<td></td><td></td>`;
+      html += `<td style="font-size:${bodyFs}pt; font-weight:bold">강사</td>`;
+      html += `<td style="font-size:${bodyFs}pt; font-weight:bold">확인</td>`;
+      for (let i = 0; i < 10; i++) {
+        html += `<td style="font-size:5pt; color:#999">(서명)</td>`;
+      }
+      html += `<td></td><td></td>`;
+      html += `</tr>`;
+
+      // 계 행
+      html += `<tr class="footer-row">`;
+      html += `<td></td><td></td>`;
+      html += `<td style="font-size:${bodyFs}pt; font-weight:bold">계</td>`;
+      html += `<td style="font-size:${bodyFs}pt; font-weight:bold">${numStudents}명</td>`;
+      for (let i = 0; i < 12; i++) html += `<td></td>`;
+      html += `</tr>`;
+
+      html += `</table>`;
+
+      // 범례
+      html += `<div class="legend">※ 출석-○, 조퇴-∅, 결석-✖, 지각-⊗</div>`;
+      html += `<div class="legend2">※ 결석처리는 학부모 전화 확인 후 비고란에 사유를 기재한다.</div>`;
+
+      html += `</div>`; // .page
+    });
+
+    html += '</div>'; // .pdf-wrap
+
+    // 6. 새 창에서 인쇄
+    const printWin = window.open('', '_blank');
+    printWin.document.write(html);
+    printWin.document.close();
+    printWin.onload = () => {
+      printWin.focus();
+      printWin.print();
+    };
+
+  } catch (err) {
+    showToast('❌ 출석부 생성 실패: ' + err.message);
+  } finally {
+    document.querySelector('#loading .load-text').innerText = '데이터 연동 중...';
+    showLoading(false);
+  }
+}
+
+// ==========================================
+// 📄 PDF 활동일지 생성
+// ==========================================
+
+async function generateActivityPDF(month, targetProg) {
+  showLoading(true);
+  document.querySelector('#loading .load-text').innerText = '📝 활동일지 데이터 준비 중...';
+
+  try {
+    const [actLogs, students, instructors] = await Promise.all([
+      SUPABASE.select('activity_logs', `?month=eq.${encodeURIComponent(month)}&order=program.asc,date.asc`),
+      SUPABASE.select('students', '?select=grade,class_num,name,program,day,period'),
+      SUPABASE.select('instructors', '?select=program,instructor_name')
+    ]);
+
+    const instructorMap = {};
+    instructors.forEach(i => { instructorMap[i.program] = i.instructor_name; });
+
+    // 프로그램별 교시 정보
+    const progInfoMap = {};
+    students.forEach(s => {
+      if (!progInfoMap[s.program]) {
+        progInfoMap[s.program] = { days: {}, periods: {} };
+      }
+      if (s.day) progInfoMap[s.program].days[s.day.replace('요일','')] = true;
+      if (s.period) progInfoMap[s.program].periods[s.period] = true;
+    });
+
+    const PERIOD_TIME = {
+      '5교시': { start: '13:10', end: '13:50' },
+      '6교시': { start: '14:00', end: '14:40' },
+      '7교시': { start: '14:50', end: '15:30' },
+      '8교시': { start: '15:40', end: '16:20' }
+    };
+
+    // 프로그램별 활동일지 그룹핑
+    const actByProg = {};
+    actLogs.forEach(a => {
+      if (!actByProg[a.program]) actByProg[a.program] = [];
+      actByProg[a.program].push(a);
+    });
+
+    let programs = [...new Set(actLogs.map(a => a.program))].sort();
+    if (targetProg && targetProg !== '전체') {
+      programs = programs.filter(p => p === targetProg);
+    }
+
+    let html = getActivityPDFStyle();
+    html += '<div class="pdf-wrap">';
+
+    programs.forEach(progName => {
+      const activities = actByProg[progName] || [];
+      const info = progInfoMap[progName] || { days: {}, periods: {} };
+      const instructor = instructorMap[progName] || '';
+      const periods = Object.keys(info.periods).sort();
+      const days = Object.keys(info.days).sort((a, b) => {
+        const order = { '월': 1, '화': 2, '수': 3, '목': 4, '금': 5 };
+        return (order[a] || 0) - (order[b] || 0);
+      });
+      const firstPeriod = periods[0] || '';
+      const lastPeriod = periods[periods.length - 1] || '';
+      const startTime = PERIOD_TIME[firstPeriod]?.start || '';
+      const endTime = PERIOD_TIME[lastPeriod]?.end || '';
+      const hoursPerDay = periods.length;
+      const monthNum = month.replace('월', '');
+
+      html += `<div class="page">`;
+
+      // 제목
+      html += `<div class="title">( ${monthNum}월) 늘봄학교( ${escapeHtml(progName)} ) 교육활동 일지</div>`;
+
+      // 확인란 표
+      html += `<table class="confirm-table">`;
+      html += `<tr><th>구분</th><th>늘봄실무사</th><th>늘봄지원실장(교감)</th></tr>`;
+      html += `<tr><td>확인</td><td></td><td></td></tr>`;
+      html += `</table>`;
+
+      // 학교명/강사명/교육요일
+      html += `<div class="info">◇ 학교명: 순창초등학교</div>`;
+      html += `<div class="info">◇ 강사명: ${escapeHtml(instructor)}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(서명)</div>`;
+      html += `<div class="info">◇ 교육요일 및 시간: ${days.join(', ')},&nbsp;&nbsp;${startTime} ~ ${endTime}</div>`;
+
+      // 활동 내용 표
+      html += `<table class="act-table">`;
+      html += `<tr>
+        <th>순</th>
+        <th>날짜(요일)</th>
+        <th>시작시간</th>
+        <th>종료시간</th>
+        <th>강의시간수</th>
+        <th>활동 내용</th>
+        <th>비고</th>
+      </tr>`;
+
+      const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+
+      for (let ri = 0; ri < 10; ri++) {
+        if (ri < activities.length) {
+          const act = activities[ri];
+          const dateObj = new Date(act.date + 'T00:00:00');
+          const dateDisplay = `${parseInt(act.date.split('-')[2])}(${dayNames[dateObj.getDay()]})`;
+          html += `<tr>
+            <td>${ri + 1}</td>
+            <td>${dateDisplay}</td>
+            <td>${act.start_time || ''}</td>
+            <td>${act.end_time || ''}</td>
+            <td>${hoursPerDay}</td>
+            <td style="text-align:left">${escapeHtml(act.content || '')}</td>
+            <td>${escapeHtml(act.remark || '')}</td>
+          </tr>`;
+        } else {
+          html += `<tr><td>${ri + 1}</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`;
+        }
+      }
+      html += `</table>`;
+
+      // 소계 표
+      let mainDays = 0, subDays = 0;
+      activities.forEach(a => {
+        if (a.remark && a.remark.includes('대체')) subDays++;
+        else mainDays++;
+      });
+      const totalDays = mainDays + subDays;
+
+      html += `<table class="summary-table">`;
+      html += `<tr><td>소계(본강사)</td><td>총 근무일( ${mainDays} ) / 총 근무시수( ${mainDays * hoursPerDay} )</td></tr>`;
+      html += `<tr><td>소계(대체강사)</td><td>총 근무일( ${subDays} ) / 총 근무시수( ${subDays * hoursPerDay} )</td></tr>`;
+      html += `<tr><td>총계</td><td>총 근무일( ${totalDays} ) / 총 근무시수( ${totalDays * hoursPerDay} )</td></tr>`;
+      html += `</table>`;
+
+      html += `<div class="legend">※ 연간(월간) 운영계획과 변경하여 지도하였을 경우 특이사항 기록</div>`;
+
+      html += `</div>`; // .page
+    });
+
+    html += '</div>';
+
+    const printWin = window.open('', '_blank');
+    printWin.document.write(html);
+    printWin.document.close();
+    printWin.onload = () => {
+      printWin.focus();
+      printWin.print();
+    };
+
+  } catch (err) {
+    showToast('❌ 활동일지 생성 실패: ' + err.message);
+  } finally {
+    document.querySelector('#loading .load-text').innerText = '데이터 연동 중...';
+    showLoading(false);
+  }
+}
+
+// ==========================================
+// 📄 PDF 스타일 — 출석부
+// ==========================================
+
+function getAttendancePDFStyle() {
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>출석부</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Malgun Gothic', sans-serif; }
+  .pdf-wrap { width: 100%; }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 15mm;
+    margin: 0 auto;
+    page-break-after: always;
+  }
+  .title {
+    text-align: center;
+    font-size: 14pt;
+    font-weight: bold;
+    margin-bottom: 8pt;
+  }
+  .info-row {
+    font-size: 9pt;
+    margin-bottom: 4pt;
+    overflow: hidden;
+  }
+  .att-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4pt;
+    table-layout: fixed;
+  }
+  .att-table th, .att-table td {
+    border: 0.5pt solid #000;
+    text-align: center;
+    vertical-align: middle;
+    padding: 1pt 1pt;
+    word-break: break-all;
+  }
+  .att-table th.dark { background: #404040; color: white; }
+  .att-table th.light { background: #f0f0f0; }
+  .att-table th.gray { background: #D9D9D9; }
+  .att-table .footer-row td { background: #E8E8E8; }
+  .legend { font-size: 7pt; margin-top: 6pt; }
+  .legend2 { font-size: 6pt; margin-top: 2pt; }
+
+  /* 열 너비 */
+  .att-table col:nth-child(1) { width: 5.5%; }
+  .att-table col:nth-child(2) { width: 4.5%; }
+  .att-table col:nth-child(3) { width: 7%; }
+  .att-table col:nth-child(4) { width: 8%; }
+  .att-table col:nth-child(5),
+  .att-table col:nth-child(6),
+  .att-table col:nth-child(7),
+  .att-table col:nth-child(8),
+  .att-table col:nth-child(9),
+  .att-table col:nth-child(10),
+  .att-table col:nth-child(11),
+  .att-table col:nth-child(12),
+  .att-table col:nth-child(13),
+  .att-table col:nth-child(14) { width: 4%; }
+  .att-table col:nth-child(15) { width: 5%; }
+  .att-table col:nth-child(16) { width: 15%; }
+
+  @media print {
+    .page { page-break-after: always; margin: 0; padding: 15mm; }
+    @page { size: A4 portrait; margin: 0; }
+  }
+</style>
+</head>
+<body>`;
+}
+
+// ==========================================
+// 📄 PDF 스타일 — 활동일지
+// ==========================================
+
+function getActivityPDFStyle() {
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>활동일지</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Malgun Gothic', sans-serif; }
+  .pdf-wrap { width: 100%; }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 15mm;
+    margin: 0 auto;
+    page-break-after: always;
+  }
+  .title {
+    text-align: center;
+    font-size: 14pt;
+    font-weight: bold;
+    margin-bottom: 8pt;
+  }
+  .confirm-table {
+    border-collapse: collapse;
+    margin-bottom: 6pt;
+  }
+  .confirm-table th, .confirm-table td {
+    border: 0.5pt solid #000;
+    padding: 3pt 8pt;
+    font-size: 8pt;
+    text-align: center;
+  }
+  .confirm-table th { background: #f0f0f0; }
+  .confirm-table tr:last-child td { height: 20pt; }
+  .info { font-size: 9pt; margin-bottom: 3pt; }
+  .act-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6pt;
+    margin-bottom: 4pt;
+  }
+  .act-table th, .act-table td {
+    border: 0.5pt solid #000;
+    text-align: center;
+    vertical-align: middle;
+    font-size: 8pt;
+    padding: 2pt;
+  }
+  .act-table th { background: #f0f0f0; }
+  .act-table td:nth-child(6) { text-align: left; }
+  .act-table col:nth-child(1) { width: 5%; }
+  .act-table col:nth-child(2) { width: 12%; }
+  .act-table col:nth-child(3) { width: 9%; }
+  .act-table col:nth-child(4) { width: 9%; }
+  .act-table col:nth-child(5) { width: 9%; }
+  .act-table col:nth-child(6) { width: 40%; }
+  .act-table col:nth-child(7) { width: 16%; }
+  .summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4pt;
+    margin-bottom: 4pt;
+  }
+  .summary-table td {
+    border: 0.5pt solid #000;
+    font-size: 8pt;
+    padding: 3pt 6pt;
+  }
+  .summary-table td:first-child {
+    background: #E8E8E8;
+    font-weight: bold;
+    width: 25%;
+    text-align: center;
+  }
+  .legend { font-size: 7pt; margin-top: 4pt; }
+
+  @media print {
+    .page { page-break-after: always; margin: 0; padding: 15mm; }
+    @page { size: A4 portrait; margin: 0; }
+  }
+</style>
+</head>
+<body>`;
+}
+
+// ==========================================
+// 📅 날짜 한글 포맷
+// ==========================================
+
+function formatKorDate(ds) {
+  if (!ds) return '　　　　　';
+  const p = ds.split('-');
+  return `${p[0]}년 ${parseInt(p[1])}월 ${parseInt(p[2])}일`;
+}
 </script>
 </body>
 </html>
