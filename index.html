@@ -4504,7 +4504,6 @@ async function generateAttendancePDF(month, targetProg) {
     setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
 
   } catch (err) {
-    showLoading(false);
     document.getElementById('portal-view').style.display = 'none';
     document.body.innerHTML += `
       <div style="
