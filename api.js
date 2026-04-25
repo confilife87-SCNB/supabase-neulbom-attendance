@@ -584,19 +584,84 @@ const API = {
   // ==========================================
 
   async getAttendanceDocList() {
-    return [];
+    const data = await SUPABASE.select(
+      'doc_history',
+      '?select=month,doc_type,created_at,updated_at,status&order=month.desc,doc_type.asc'
+    );
+    return data.map(d => ({
+      month:     d.month,
+      docType:   d.doc_type,
+      url:       '',
+      createdAt: d.created_at || '-',
+      updatedAt: d.updated_at || '-',
+      status:    d.status || '작업중'
+    }));
   },
 
   async generateAttendanceDoc(month, targetProg) {
     await generateAttendancePDF(month, targetProg || '전체');
-    return { success: true, url: '', isUpdate: false };
+
+    // 생성 기록 저장
+    const now = new Date().toLocaleString('ko-KR');
+    const existing = await SUPABASE.select(
+      'doc_history',
+      `?month=eq.${encodeURIComponent(month)}&doc_type=eq.출석부`
+    );
+
+    if (existing.length > 0) {
+      await SUPABASE.update(
+        'doc_history',
+        { updated_at: now, status: '작업중' },
+        `?month=eq.${encodeURIComponent(month)}&doc_type=eq.출석부`
+      );
+    } else {
+      await SUPABASE.insert('doc_history', [{
+        month:      month,
+        doc_type:   '출석부',
+        created_at: now,
+        updated_at: now,
+        status:     '작업중'
+      }]);
+    }
+
+    return { success: true, url: '', isUpdate: existing.length > 0 };
   },
 
   async generateActivityDoc(month, targetProg) {
     await generateActivityPDF(month, targetProg || '전체');
-    return { success: true, url: '', isUpdate: false };
+
+    // 생성 기록 저장
+    const now = new Date().toLocaleString('ko-KR');
+    const existing = await SUPABASE.select(
+      'doc_history',
+      `?month=eq.${encodeURIComponent(month)}&doc_type=eq.활동일지`
+    );
+
+    if (existing.length > 0) {
+      await SUPABASE.update(
+        'doc_history',
+        { updated_at: now, status: '작업중' },
+        `?month=eq.${encodeURIComponent(month)}&doc_type=eq.활동일지`
+      );
+    } else {
+      await SUPABASE.insert('doc_history', [{
+        month:      month,
+        doc_type:   '활동일지',
+        created_at: now,
+        updated_at: now,
+        status:     '작업중'
+      }]);
+    }
+
+    return { success: true, url: '', isUpdate: existing.length > 0 };
   },
   async finalizeMonth(month, docType) {
+    const now = new Date().toLocaleString('ko-KR');
+    await SUPABASE.update(
+      'doc_history',
+      { status: '확정', updated_at: now },
+      `?month=eq.${encodeURIComponent(month)}&doc_type=eq.${encodeURIComponent(docType)}`
+    );
     return { success: true, message: `${month} ${docType} 마감 완료` };
   },
 
