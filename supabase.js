@@ -13,21 +13,12 @@ const SUPABASE = {
 
   // ── 앱 최초 로딩 시 settings 테이블에서 key 가져오기 ──
   async loadKey() {
-    const url = `${CONFIG.SUPABASE_URL}/rest/v1/settings?role=eq._appkey&select=password`;
+    const existing = this.getKey();
+    if (existing) return existing;
 
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    const key = CONFIG.SUPABASE_ANON_KEY;
+    if (!key) throw new Error('앱 초기화 실패. 관리자에게 문의하세요.');
 
-    if (!res.ok) throw new Error('앱 초기화 실패. 관리자에게 문의하세요.');
-
-    const data = await res.json();
-    if (!data || data.length === 0) throw new Error('앱 키를 찾을 수 없습니다.');
-
-    const key = data[0].password;
     this.setKey(key);
     return key;
   },
