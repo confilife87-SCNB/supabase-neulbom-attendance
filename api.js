@@ -1,14 +1,5 @@
 const API = {
 
-  // ── secretToken 관리 ──
-  getSecretToken() {
-    return localStorage.getItem('secretToken') || '';
-  },
-
-  setSecretToken(token) {
-    localStorage.setItem('secretToken', token);
-  },
-
   // ── sessionToken 관리 ──
   getSessionToken() {
     return sessionStorage.getItem('sessionToken') || '';
