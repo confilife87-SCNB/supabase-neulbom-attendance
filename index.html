@@ -3308,9 +3308,15 @@ async function loadDocData() {
     html += '  </div>';
     html += '  <div class="doc-card-actions">';
 
-    html += '    <button class="btn-action blue" ' +
-            '      onclick="window.open(\'' + escapeHtml(docInfo.url) + '\', \'_blank\')">' +
-            '      📄 열기</button>';
+    if (docInfo.docType === '출석부') {
+      html += '    <button class="btn-action blue" ' +
+              '      onclick="createOrUpdateDoc()">' +
+              '      📄 출석부 열기</button>';
+    } else if (docInfo.docType === '활동일지') {
+      html += '    <button class="btn-action blue" ' +
+              '      onclick="createOrUpdateActivityDoc()">' +
+              '      📄 활동일지 열기</button>';
+    }
 
     if (!isArchive) {
       if (docInfo.docType === '출석부') {
