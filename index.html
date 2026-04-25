@@ -4323,43 +4323,11 @@ async function generateAttendancePDF(month, targetProg) {
       const numStudents = studentList.length;
       const instructor = instructorMap[progName] || '';
 
-      // 동적 폰트 + 행 높이 설정
-      let bodyFs, headerFs, symbolFs, remarkFs;
-      let headerRowH, studentRowH, footerRowH;
-
-      // A4 기준 사용 가능 높이 계산
-      // 전체 267mm - 제목/기간/강사 30mm - 범례 8mm = 229mm
-      // 헤더 4행 + 학생N행 + 하단 2행 = N + 6행
-      const AVAILABLE_MM = 229;
-      const TOTAL_ROWS   = numStudents + 6; // 헤더4 + 학생N + 하단2
-
-      if (numStudents <= 10) {
-        // 학생 적을 때 → 고정 높이 (꽉 안 차도 됨)
-        bodyFs      = 8;
-        headerFs    = 8;
-        symbolFs    = 10;
-        remarkFs    = 6;
-        headerRowH  = '10mm';
-        studentRowH = '10mm';
-        footerRowH  = '10mm';
-      } else {
-        // 학생 많을 때 → 동적 높이 (1페이지 꽉 채움)
-        const rowHeightMm = Math.floor((AVAILABLE_MM / TOTAL_ROWS) * 10) / 10;
-
-        if (numStudents <= 15) {
-          bodyFs   = 8; headerFs = 8; symbolFs = 10; remarkFs = 6;
-        } else if (numStudents <= 20) {
-          bodyFs   = 7; headerFs = 7; symbolFs = 9;  remarkFs = 5.5;
-        } else if (numStudents <= 25) {
-          bodyFs   = 6; headerFs = 6; symbolFs = 8;  remarkFs = 5;
-        } else {
-          bodyFs   = 5; headerFs = 5; symbolFs = 7;  remarkFs = 4.5;
-        }
-
-        headerRowH  = rowHeightMm + 'mm';
-        studentRowH = rowHeightMm + 'mm';
-        footerRowH  = rowHeightMm + 'mm';
-      }
+      // 22행 고정이므로 폰트 고정값 사용
+      const bodyFs   = 8;
+      const headerFs = 8;
+      const symbolFs = 10;
+      const remarkFs = 6;
 
       const periodStart = classDates.length > 0 ? classDates[0] : '';
       const periodEnd = classDates.length > 0 ? classDates[classDates.length - 1] : '';
@@ -4421,54 +4389,70 @@ async function generateAttendancePDF(month, targetProg) {
       html += `<th class="gray" style="font-size:${headerFs}pt"></th>`;
       html += `</tr>`;
 
-      // 학생 행
-      studentList.forEach(student => {
-        html += `<tr style="height:${studentRowH}">`;
-        html += `<td style="font-size:${bodyFs}pt">${student.grade}</td>`;
-        html += `<td style="font-size:${bodyFs}pt">${student.classNum}</td>`;
-        html += `<td style="font-size:${bodyFs}pt; font-weight:bold">${escapeHtml(student.name)}</td>`;
-        html += `<td style="font-size:${bodyFs - 1}pt">${escapeHtml(student.contact)}</td>`;
+      // 출석부 22행 고정 + 행 높이 균등 분배
+      // A4 229mm / (22 + 6)행 = 약 8.2mm
+      const ATT_FIXED_ROWS = 22;
+      const ATT_ROW_H      = '8.2mm';
+      const ATT_HEADER_H   = '8.2mm';
 
-        let totalPresent = 0;
-        let firstDate = null;
-        let lastDate = null;
+      // 학생 행 (22행 고정)
+      for (let si = 0; si < ATT_FIXED_ROWS; si++) {
+        const student = studentList[si] || null;
 
-        for (let di = 0; di < 10; di++) {
-          let symbol = '';
-          if (di < classDates.length) {
-            const dateRecords = (attendByProg[progName] || {})[classDates[di]] || {};
-            const status = dateRecords[student.key];
-            if (status) {
-              if (!firstDate) firstDate = classDates[di];
-              lastDate = classDates[di];
-              if (status === '출석') { symbol = '○'; totalPresent++; }
-              else if (status === '지각') { symbol = '⊗'; totalPresent++; }
-              else if (status === '조퇴') { symbol = '∅'; totalPresent++; }
-              else if (status === '결석') { symbol = '✖'; }
+        html += `<tr style="height:${ATT_ROW_H}">`;
+
+        if (student) {
+          html += `<td style="font-size:${bodyFs}pt">${student.grade}</td>`;
+          html += `<td style="font-size:${bodyFs}pt">${student.classNum}</td>`;
+          html += `<td style="font-size:${bodyFs}pt; font-weight:bold">${escapeHtml(student.name)}</td>`;
+          html += `<td style="font-size:${bodyFs - 1}pt">${escapeHtml(student.contact)}</td>`;
+
+          let totalPresent = 0;
+          let firstDate    = null;
+          let lastDate     = null;
+
+          for (let di = 0; di < 10; di++) {
+            let symbol = '';
+            if (di < classDates.length) {
+              const dateRecords = (attendByProg[progName] || {})[classDates[di]] || {};
+              const status      = dateRecords[student.key];
+              if (status) {
+                if (!firstDate) firstDate = classDates[di];
+                lastDate = classDates[di];
+                if (status === '출석') { symbol = '○'; totalPresent++; }
+                else if (status === '지각') { symbol = '⊗'; totalPresent++; }
+                else if (status === '조퇴') { symbol = '∅'; totalPresent++; }
+                else if (status === '결석') { symbol = '✖'; }
+              }
             }
+            html += `<td style="font-size:${symbolFs}pt">${symbol}</td>`;
           }
-          html += `<td style="font-size:${symbolFs}pt">${symbol}</td>`;
+
+          // 총출석
+          html += `<td style="font-size:${bodyFs}pt; font-weight:bold">${totalPresent > 0 ? totalPresent : ''}</td>`;
+
+          // 비고
+          const remarkParts = [];
+          if (student.permNote) remarkParts.push(student.permNote);
+          if (firstDate && classDates.length > 0 && firstDate !== classDates[0]) {
+            remarkParts.push(`중도입소(${parseInt(firstDate.split('-')[2])}일)`);
+          }
+          const reasons = (reasonsByProg[progName] || {})[student.key] || [];
+          reasons.forEach(r => {
+            if (r.reason) remarkParts.push(`${parseInt(r.date.split('-')[2])}일 ${r.status}-${r.reason}`);
+          });
+          html += `<td style="font-size:${remarkFs}pt; text-align:left">${escapeHtml(remarkParts.join(', '))}</td>`;
+
+        } else {
+          // 빈 행
+          for (let c = 0; c < 16; c++) html += `<td></td>`;
         }
 
-        // 총출석
-        html += `<td style="font-size:${bodyFs}pt; font-weight:bold">${totalPresent > 0 ? totalPresent : ''}</td>`;
-
-        // 비고
-        const remarkParts = [];
-        if (student.permNote) remarkParts.push(student.permNote);
-        if (firstDate && classDates.length > 0 && firstDate !== classDates[0]) {
-          remarkParts.push(`중도입소(${parseInt(firstDate.split('-')[2])}일)`);
-        }
-        const reasons = (reasonsByProg[progName] || {})[student.key] || [];
-        reasons.forEach(r => {
-          if (r.reason) remarkParts.push(`${parseInt(r.date.split('-')[2])}일 ${r.status}-${r.reason}`);
-        });
-        html += `<td style="font-size:${remarkFs}pt; text-align:left">${escapeHtml(remarkParts.join(', '))}</td>`;
         html += `</tr>`;
-      });
+      }
 
       // 강사 확인 행
-      html += `<tr class="footer-row" style="height:${footerRowH}">`;
+      html += `<tr class="footer-row" style="height:${ATT_ROW_H}">`;
       html += `<td></td><td></td>`;
       html += `<td style="font-size:${bodyFs}pt; font-weight:bold">강사</td>`;
       html += `<td style="font-size:${bodyFs}pt; font-weight:bold">확인</td>`;
@@ -4479,7 +4463,7 @@ async function generateAttendancePDF(month, targetProg) {
       html += `</tr>`;
 
       // 계 행
-      html += `<tr class="footer-row" style="height:${footerRowH}">`;
+      html += `<tr class="footer-row" style="height:${ATT_ROW_H}">`;
       html += `<td></td><td></td>`;
       html += `<td style="font-size:${bodyFs}pt; font-weight:bold">계</td>`;
       html += `<td style="font-size:${bodyFs}pt; font-weight:bold">${numStudents}명</td>`;
@@ -4588,11 +4572,13 @@ async function generateActivityPDF(month, targetProg) {
       // 제목
       html += `<div class="title">( ${monthNum}월) 늘봄학교( ${escapeHtml(progName)} ) 교육활동 일지</div>`;
 
-      // 확인란 표
+      // ── 확인란 표 (오른쪽 정렬 + 확인 행 높이 2배) ──
+      html += `<div style="display:flex; justify-content:flex-end; margin-bottom:6pt;">`;
       html += `<table class="confirm-table">`;
       html += `<tr><th>구분</th><th>늘봄실무사</th><th>늘봄지원실장(교감)</th></tr>`;
-      html += `<tr><td>확인</td><td></td><td></td></tr>`;
+      html += `<tr class="confirm-sign"><td>확인</td><td></td><td></td></tr>`;
       html += `</table>`;
+      html += `</div>`;
 
       // 학교명/강사명/교육요일
       html += `<div class="info">◇ 학교명: 순창초등학교</div>`;
@@ -4600,38 +4586,55 @@ async function generateActivityPDF(month, targetProg) {
       html += `<div class="info">◇ 교육요일 및 시간: ${days.join(', ')},&nbsp;&nbsp;${startTime} ~ ${endTime}</div>`;
 
       // 활동 내용 표
-      html += `<table class="act-table">`;
-      html += `<tr>
-        <th>순</th>
-        <th>날짜(요일)</th>
-        <th>시작시간</th>
-        <th>종료시간</th>
-        <th>강의시간수</th>
-        <th>활동 내용</th>
-        <th>비고</th>
-      </tr>`;
+    // ── 활동 내용 표 (12행 고정 + 행 높이 균등 분배) ──
+    // A4 사용 가능 높이 계산
+    // 267mm - 제목20mm - 결재란18mm - 학교/강사/요일정보18mm - 소계표20mm - 범례6mm = 185mm
+    // 헤더1행 + 데이터12행 = 13행
+    // 185mm / 13행 = 약 14.2mm
+    const ACT_TABLE_ROWS = 12;
+    const ACT_ROW_H      = '14.2mm';
+    const ACT_HEADER_H   = '10mm';
 
-      const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    html += `<table class="act-table">`;
+    html += `<tr style="height:${ACT_HEADER_H}">
+      <th>순</th>
+      <th>날짜(요일)</th>
+      <th>시작시간</th>
+      <th>종료시간</th>
+      <th>강의시간수</th>
+      <th>활동 내용</th>
+      <th>비고</th>
+    </tr>`;
 
-      for (let ri = 0; ri < 10; ri++) {
-        if (ri < activities.length) {
-          const act = activities[ri];
-          const dateObj = new Date(act.date + 'T00:00:00');
-          const dateDisplay = `${parseInt(act.date.split('-')[2])}(${dayNames[dateObj.getDay()]})`;
-          html += `<tr>
-            <td>${ri + 1}</td>
-            <td>${dateDisplay}</td>
-            <td>${act.start_time || ''}</td>
-            <td>${act.end_time || ''}</td>
-            <td>${hoursPerDay}</td>
-            <td style="text-align:left">${escapeHtml(act.content || '')}</td>
-            <td>${escapeHtml(act.remark || '')}</td>
-          </tr>`;
-        } else {
-          html += `<tr><td>${ri + 1}</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`;
-        }
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+
+    for (let ri = 0; ri < ACT_TABLE_ROWS; ri++) {
+      if (ri < activities.length) {
+        const act        = activities[ri];
+        const dateObj    = new Date(act.date + 'T00:00:00');
+        const dateDisplay = `${parseInt(act.date.split('-')[2])}(${dayNames[dateObj.getDay()]})`;
+        html += `<tr style="height:${ACT_ROW_H}">
+          <td>${ri + 1}</td>
+          <td>${dateDisplay}</td>
+          <td>${act.start_time || ''}</td>
+          <td>${act.end_time || ''}</td>
+          <td>${hoursPerDay}</td>
+          <td style="text-align:left; vertical-align:middle;">${escapeHtml(act.content || '')}</td>
+          <td>${escapeHtml(act.remark || '')}</td>
+        </tr>`;
+      } else {
+        html += `<tr style="height:${ACT_ROW_H}">
+          <td>${ri + 1}</td>
+          <td></td>
+          <td></td>
+          <td></td>
+          <td></td>
+          <td></td>
+          <td></td>
+        </tr>`;
       }
-      html += `</table>`;
+    }
+    html += `</table>`;
 
       // 소계 표
       let mainDays = 0, subDays = 0;
@@ -4782,16 +4785,21 @@ function getActivityPDFStyle() {
   }
   .confirm-table {
     border-collapse: collapse;
-    margin-bottom: 6pt;
   }
   .confirm-table th, .confirm-table td {
     border: 0.5pt solid #000;
     padding: 3pt 8pt;
     font-size: 8pt;
     text-align: center;
+    min-width: 70pt;
   }
-  .confirm-table th { background: #f0f0f0; }
-  .confirm-table tr:last-child td { height: 20pt; }
+  .confirm-table th {
+    background: #f0f0f0;
+    height: 16pt;
+  }
+  .confirm-table .confirm-sign td {
+    height: 40pt;
+  }
   .info { font-size: 9pt; margin-bottom: 3pt; }
   .act-table {
     width: 100%;
