@@ -4323,16 +4323,42 @@ async function generateAttendancePDF(month, targetProg) {
       const numStudents = studentList.length;
       const instructor = instructorMap[progName] || '';
 
-      // 동적 폰트 설정
+      // 동적 폰트 + 행 높이 설정
       let bodyFs, headerFs, symbolFs, remarkFs;
+      let headerRowH, studentRowH, footerRowH;
+
+      // A4 기준 사용 가능 높이 계산
+      // 전체 267mm - 제목/기간/강사 30mm - 범례 8mm = 229mm
+      // 헤더 4행 + 학생N행 + 하단 2행 = N + 6행
+      const AVAILABLE_MM = 229;
+      const TOTAL_ROWS   = numStudents + 6; // 헤더4 + 학생N + 하단2
+
       if (numStudents <= 10) {
-        bodyFs = 8; headerFs = 8; symbolFs = 10; remarkFs = 6;
-      } else if (numStudents <= 15) {
-        bodyFs = 8; headerFs = 8; symbolFs = 10; remarkFs = 6;
-      } else if (numStudents <= 20) {
-        bodyFs = 7; headerFs = 7; symbolFs = 9; remarkFs = 5.5;
+        // 학생 적을 때 → 고정 높이 (꽉 안 차도 됨)
+        bodyFs      = 8;
+        headerFs    = 8;
+        symbolFs    = 10;
+        remarkFs    = 6;
+        headerRowH  = '10mm';
+        studentRowH = '10mm';
+        footerRowH  = '10mm';
       } else {
-        bodyFs = 6; headerFs = 6; symbolFs = 8; remarkFs = 5;
+        // 학생 많을 때 → 동적 높이 (1페이지 꽉 채움)
+        const rowHeightMm = Math.floor((AVAILABLE_MM / TOTAL_ROWS) * 10) / 10;
+
+        if (numStudents <= 15) {
+          bodyFs   = 8; headerFs = 8; symbolFs = 10; remarkFs = 6;
+        } else if (numStudents <= 20) {
+          bodyFs   = 7; headerFs = 7; symbolFs = 9;  remarkFs = 5.5;
+        } else if (numStudents <= 25) {
+          bodyFs   = 6; headerFs = 6; symbolFs = 8;  remarkFs = 5;
+        } else {
+          bodyFs   = 5; headerFs = 5; symbolFs = 7;  remarkFs = 4.5;
+        }
+
+        headerRowH  = rowHeightMm + 'mm';
+        studentRowH = rowHeightMm + 'mm';
+        footerRowH  = rowHeightMm + 'mm';
       }
 
       const periodStart = classDates.length > 0 ? classDates[0] : '';
@@ -4355,7 +4381,7 @@ async function generateAttendancePDF(month, targetProg) {
       html += `<table class="att-table" style="font-size:${bodyFs}pt">`;
 
       // 헤더 행1: 날짜
-      html += `<tr>`;
+      html += `<tr style="height:${headerRowH}">`;
       html += `<th class="dark" rowspan="4" style="font-size:${headerFs}pt">학년</th>`;
       html += `<th class="dark" rowspan="4" style="font-size:${headerFs}pt">반</th>`;
       html += `<th class="dark" rowspan="4" style="font-size:${headerFs}pt">이름</th>`;
@@ -4369,7 +4395,7 @@ async function generateAttendancePDF(month, targetProg) {
       html += `</tr>`;
 
       // 헤더 행2: 요일
-      html += `<tr>`;
+      html += `<tr style="height:${headerRowH}">`;
       html += `<th class="light" style="font-size:${headerFs}pt">요&nbsp;일</th>`;
       for (let di = 0; di < 10; di++) {
         const dayText = di < classDates.length ? dayNames[new Date(classDates[di] + 'T00:00:00').getDay()] : '';
@@ -4378,7 +4404,7 @@ async function generateAttendancePDF(month, targetProg) {
       html += `</tr>`;
 
       // 헤더 행3: 차시
-      html += `<tr>`;
+      html += `<tr style="height:${headerRowH}">`;
       html += `<th class="light" style="font-size:${headerFs}pt">차&nbsp;시</th>`;
       for (let di = 0; di < 10; di++) {
         html += `<th class="light" style="font-size:${headerFs}pt">${di + 1}</th>`;
@@ -4386,7 +4412,7 @@ async function generateAttendancePDF(month, targetProg) {
       html += `</tr>`;
 
       // 헤더 행4: 연락처
-      html += `<tr>`;
+      html += `<tr style="height:${headerRowH}">`;
       html += `<th class="gray" style="font-size:${headerFs}pt">연락처</th>`;
       for (let di = 0; di < 10; di++) {
         html += `<th class="gray" style="font-size:${headerFs}pt"></th>`;
@@ -4397,7 +4423,7 @@ async function generateAttendancePDF(month, targetProg) {
 
       // 학생 행
       studentList.forEach(student => {
-        html += `<tr>`;
+        html += `<tr style="height:${studentRowH}">`;
         html += `<td style="font-size:${bodyFs}pt">${student.grade}</td>`;
         html += `<td style="font-size:${bodyFs}pt">${student.classNum}</td>`;
         html += `<td style="font-size:${bodyFs}pt; font-weight:bold">${escapeHtml(student.name)}</td>`;
@@ -4442,7 +4468,7 @@ async function generateAttendancePDF(month, targetProg) {
       });
 
       // 강사 확인 행
-      html += `<tr class="footer-row">`;
+      html += `<tr class="footer-row" style="height:${footerRowH}">`;
       html += `<td></td><td></td>`;
       html += `<td style="font-size:${bodyFs}pt; font-weight:bold">강사</td>`;
       html += `<td style="font-size:${bodyFs}pt; font-weight:bold">확인</td>`;
@@ -4453,7 +4479,7 @@ async function generateAttendancePDF(month, targetProg) {
       html += `</tr>`;
 
       // 계 행
-      html += `<tr class="footer-row">`;
+      html += `<tr class="footer-row" style="height:${footerRowH}">`;
       html += `<td></td><td></td>`;
       html += `<td style="font-size:${bodyFs}pt; font-weight:bold">계</td>`;
       html += `<td style="font-size:${bodyFs}pt; font-weight:bold">${numStudents}명</td>`;
