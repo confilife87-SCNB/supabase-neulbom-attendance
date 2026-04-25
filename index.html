@@ -4323,11 +4323,12 @@ async function generateAttendancePDF(month, targetProg) {
       const numStudents = studentList.length;
       const instructor = instructorMap[progName] || '';
 
-      // 22행 고정이므로 폰트 고정값 사용
-      const bodyFs   = 8;
-      const headerFs = 8;
-      const symbolFs = 10;
-      const remarkFs = 6;
+      // 22행 고정이므로 폰트 및 행 높이 고정값 사용
+      const bodyFs     = 8;
+      const headerFs   = 8;
+      const symbolFs   = 10;
+      const remarkFs   = 6;
+      const headerRowH = '8.2mm';
 
       const periodStart = classDates.length > 0 ? classDates[0] : '';
       const periodEnd = classDates.length > 0 ? classDates[classDates.length - 1] : '';
