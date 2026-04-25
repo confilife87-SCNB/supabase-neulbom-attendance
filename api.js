@@ -588,14 +588,14 @@ const API = {
   },
 
   async generateAttendanceDoc(month, targetProg) {
-    // PDF 생성은 index.html에서 직접 처리
+    await generateAttendancePDF(month, targetProg || '전체');
     return { success: true, url: '', isUpdate: false };
   },
 
   async generateActivityDoc(month, targetProg) {
+    await generateActivityPDF(month, targetProg || '전체');
     return { success: true, url: '', isUpdate: false };
   },
-
   async finalizeMonth(month, docType) {
     return { success: true, message: `${month} ${docType} 마감 완료` };
   },
