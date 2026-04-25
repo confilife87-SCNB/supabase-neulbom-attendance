@@ -23,163 +23,829 @@ const API = {
     sessionStorage.removeItem('sessionRole');
   },
 
-  // ── 핵심 통신 함수 ──
-async call(action, params = {}, timeoutMs = 30000) {
-    const secretToken = this.getSecretToken();
-    const sessionToken = this.getSessionToken();
+  // ==========================================
+  // 🔐 인증
+  // ==========================================
 
-    const body = {
-      action,
-      params,
-      secretToken,
-      sessionToken
+  async verifyPassword(roleOrProgName, inputPwd) {
+    const data = await SUPABASE.select('settings',
+      `?role=eq.${encodeURIComponent(roleOrProgName)}&select=role,password`
+    );
+    if (!data || data.length === 0) return { isValid: false };
+
+    const isValid = data[0].password === inputPwd;
+    if (isValid) {
+      const token = crypto.randomUUID();
+      const role = roleOrProgName === '관리자' ? 'admin'
+        : roleOrProgName.includes('담임') ? 'hr' : 'inst';
+      this.setSessionToken(token);
+      sessionStorage.setItem('sessionRole', role);
+      sessionStorage.setItem('sessionProg', roleOrProgName);
+      sessionStorage.setItem('sessionExpiry', Date.now() + 1800000);
+    }
+    return { isValid, role: sessionStorage.getItem('sessionRole') };
+  },
+
+  async updatePassword(roleOrProgName, newPwd) {
+    await SUPABASE.update('settings',
+      { password: newPwd },
+      `?role=eq.${encodeURIComponent(roleOrProgName)}`
+    );
+    return true;
+  },
+
+  async getPasswordList() {
+    const data = await SUPABASE.select('settings', '?select=role,password&order=role');
+    return data.map(d => ({ role: d.role, pwd: d.password }));
+  },
+
+  // ==========================================
+  // 🔄 초기 로딩
+  // ==========================================
+
+  async getInitialData() {
+    const students = await SUPABASE.select('students', '?select=grade,class_num,day,period,program');
+
+    // 프로그램 구조 생성
+    const programStructure = {};
+    students.forEach(s => {
+      if (!s.program || !s.day || !s.period) return;
+      const day = s.day.replace('요일', '');
+      if (!programStructure[s.program]) programStructure[s.program] = {};
+      if (!programStructure[s.program][day]) programStructure[s.program][day] = [];
+      if (!programStructure[s.program][day].includes(s.period)) {
+        programStructure[s.program][day].push(s.period);
+      }
+    });
+
+    // 학급 구조 생성
+    const homeroomStructure = {};
+    students.forEach(s => {
+      if (!s.grade || !s.class_num) return;
+      if (!homeroomStructure[s.grade]) homeroomStructure[s.grade] = [];
+      if (!homeroomStructure[s.grade].includes(s.class_num)) {
+        homeroomStructure[s.grade].push(s.class_num);
+      }
+    });
+
+    // 학년별 정렬
+    Object.keys(homeroomStructure).forEach(g => {
+      homeroomStructure[g].sort((a, b) => a - b);
+    });
+
+    return { programStructure, homeroomStructure };
+  },
+
+  // ==========================================
+  // 🔵 강사
+  // ==========================================
+
+  async getInstDashboardData(progName, targetDay, targetPeriod, selectedDate) {
+    const day = targetDay.replace('요일', '');
+
+    // 학생 목록
+    const students = await SUPABASE.select('students',
+      `?program=eq.${encodeURIComponent(progName)}&day=eq.${encodeURIComponent(targetDay)}&period=eq.${encodeURIComponent(targetPeriod)}`
+    );
+
+    // 기존 출결 기록
+    const existingArr = await SUPABASE.select('attendance',
+      `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&period=eq.${encodeURIComponent(targetPeriod)}`
+    );
+    const existing = {};
+    existingArr.forEach(r => {
+      existing[`${r.grade}_${r.class_num}_${r.name}`] = { status: r.status, reason: r.reason || '' };
+    });
+
+    // 오늘 담임 메모
+    const memos = await SUPABASE.select('pre_memos',
+      `?date=eq.${selectedDate}`
+    );
+    const memoMap = {};
+    memos.forEach(m => {
+      if (m.name !== '__공지__') {
+        memoMap[`${m.grade}_${m.class_num}_${m.name}`] = `${m.status}|${m.reason || ''}`;
+      }
+    });
+
+    // 공지사항
+    const noticeMap = {};
+    memos.filter(m => m.name === '__공지__').forEach(m => {
+      noticeMap[`${m.grade}_${m.class_num}`] = m.status;
+    });
+
+    // 연락처
+    const contacts = await SUPABASE.select('contacts', '?select=grade,class_num,name,phone');
+    const contactMap = {};
+    contacts.forEach(c => { contactMap[`${c.grade}_${c.class_num}_${c.name}`] = c.phone || ''; });
+
+    // 활동일지
+    const actLogs = await SUPABASE.select('activity_logs',
+      `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}`
+    );
+    const activityContent = actLogs.length > 0 ? actLogs[0].content : '';
+
+    const seen = {};
+    const result = [];
+    students.forEach(s => {
+      const key = `${s.grade}_${s.class_num}_${s.name}`;
+      if (seen[key]) return;
+      seen[key] = true;
+      result.push({
+        grade: s.grade,
+        classNum: s.class_num,
+        name: s.name,
+        permNote: s.perm_note || '',
+        dailyNote: memoMap[key] || '',
+        attendanceRate: 100,
+        contact: contactMap[key] || '',
+        classNotice: noticeMap[`${s.grade}_${s.class_num}`] || ''
+      });
+    });
+
+    result.sort((a, b) => {
+      if (a.grade !== b.grade) return a.grade - b.grade;
+      if (a.classNum !== b.classNum) return a.classNum - b.classNum;
+      return a.name.localeCompare(b.name, 'ko-KR');
+    });
+
+    return { students: result, existing, activityContent };
+  },
+
+  async saveAttendanceData(selectedDate, progName, day, period, attendanceList, isCanceled, substituteInstructor) {
+    // 기존 기록 삭제
+    await SUPABASE.delete('attendance',
+      `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&period=eq.${encodeURIComponent(period)}`
+    );
+
+    const instructor = await this._getInstructor(progName);
+    const recorder = substituteInstructor ? `${substituteInstructor}(대체강사)` : instructor;
+    const month = `${new Date(selectedDate).getMonth() + 1}월`;
+    const now = new Date().toTimeString().slice(0, 8);
+
+    if (isCanceled) {
+      await SUPABASE.insert('attendance', [{
+        date: selectedDate, check_time: now, day, period,
+        program: progName, grade: null, class_num: null,
+        name: '전체', status: '휴강', month, reason: '', recorder
+      }]);
+    } else {
+      const rows = attendanceList.map(s => ({
+        date: selectedDate, check_time: now, day, period,
+        program: progName, grade: s.grade, class_num: s.classNum,
+        name: s.name, status: s.status, month, reason: s.reason || '', recorder
+      }));
+      if (rows.length > 0) await SUPABASE.insert('attendance', rows);
+    }
+
+    // 제출현황 업데이트
+    await this._updateSubmission(selectedDate, progName, period, day,
+      isCanceled ? '🚫 휴강' : '✅ 제출 완료', null, recorder
+    );
+
+    // 소급입력 체크
+    const today = new Date().toISOString().slice(0, 10);
+    const isLate = selectedDate < today;
+
+    // 3연속 결석 체크
+    const alerts = [];
+    if (!isCanceled) {
+      for (const s of attendanceList) {
+        if (s.status === '결석') {
+          const recent = await SUPABASE.select('attendance',
+            `?program=eq.${encodeURIComponent(progName)}&name=eq.${encodeURIComponent(s.name)}&status=neq.휴강&order=date.desc&limit=3`
+          );
+          if (recent.length >= 3 && recent.every(r => r.status === '결석')) {
+            alerts.push(`${s.grade}-${s.classNum} ${s.name}`);
+          }
+        }
+      }
+    }
+
+    const summary = { present: 0, absent: 0, late: 0, leave: 0, total: 0 };
+    if (!isCanceled) {
+      attendanceList.forEach(s => {
+        summary.total++;
+        if (s.status === '출석') summary.present++;
+        else if (s.status === '결석') summary.absent++;
+        else if (s.status === '지각') summary.late++;
+        else if (s.status === '조퇴') summary.leave++;
+      });
+    }
+
+    return { success: true, alerts, summary };
+  },
+
+  async saveActivityLog(selectedDate, progName, day, periods, activityContent, substituteInstructor) {
+    const periodList = String(periods).split(',');
+    const firstPeriod = periodList[0].trim();
+    const lastPeriod = periodList[periodList.length - 1].trim();
+    const PERIOD_TIME = {
+      '5교시': { start: '13:10', end: '13:50' },
+      '6교시': { start: '14:00', end: '14:40' },
+      '7교시': { start: '14:50', end: '15:30' },
+      '8교시': { start: '15:40', end: '16:20' }
+    };
+    const startTime = PERIOD_TIME[firstPeriod]?.start || '';
+    const endTime = PERIOD_TIME[lastPeriod]?.end || '';
+    const instructor = await this._getInstructor(progName);
+    const recorder = substituteInstructor ? substituteInstructor : instructor;
+    const remark = substituteInstructor ? `${substituteInstructor}(대체)` : '';
+    const month = `${new Date(selectedDate).getMonth() + 1}월`;
+    const dateObj = new Date(selectedDate + 'T00:00:00');
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    const dayOfWeek = dayNames[dateObj.getDay()];
+    const periodText = periodList.length === 1 ? firstPeriod : `${firstPeriod}-${lastPeriod}`;
+
+    // 기존 기록 확인
+    const existing = await SUPABASE.select('activity_logs',
+      `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}`
+    );
+
+    const rowData = {
+      date: selectedDate, day: dayOfWeek, program: progName,
+      instructor: recorder, period: periodText,
+      start_time: startTime, end_time: endTime,
+      content: activityContent, remark, month
     };
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    if (existing.length > 0) {
+      await SUPABASE.update('activity_logs', rowData,
+        `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}`
+      );
+    } else {
+      await SUPABASE.insert('activity_logs', [rowData]);
+    }
 
-    try {
-      const res = await fetch(CONFIG.GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(body),
-        signal: controller.signal
+    // 제출현황 업데이트
+    await this._updateSubmission(selectedDate, progName, null, null, null, '✅ 제출 완료', recorder);
+
+    return { success: true };
+  },
+
+  async getExistingAttendance(selectedDate, progName, day, period) {
+    const data = await SUPABASE.select('attendance',
+      `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&period=eq.${encodeURIComponent(period)}`
+    );
+    const result = {};
+    data.forEach(r => {
+      result[`${r.grade}_${r.class_num}_${r.name}`] = { status: r.status, reason: r.reason || '' };
+    });
+    return result;
+  },
+
+  // ==========================================
+  // 🟢 담임
+  // ==========================================
+
+  async getHomeroomStudents(grade, classNum, targetDate) {
+    const students = await SUPABASE.select('students',
+      `?grade=eq.${grade}&class_num=eq.${classNum}&select=name`
+    );
+    const uniqueNames = [...new Set(students.map(s => s.name))];
+
+    const memos = await SUPABASE.select('pre_memos',
+      `?date=eq.${targetDate}&grade=eq.${grade}&class_num=eq.${classNum}`
+    );
+    const memoMap = {};
+    memos.forEach(m => {
+      if (m.name !== '__공지__') {
+        memoMap[m.name] = `${m.status}|${m.reason || ''}`;
+      }
+    });
+
+    return uniqueNames.sort((a, b) => a.localeCompare(b, 'ko-KR')).map(name => ({
+      name, dailyNote: memoMap[name] || ''
+    }));
+  },
+
+  async saveHomeroomMemos(grade, classNum, memoData, targetDate) {
+    // 기존 삭제
+    await SUPABASE.delete('pre_memos',
+      `?date=eq.${targetDate}&grade=eq.${grade}&class_num=eq.${classNum}&name=neq.__공지__`
+    );
+
+    // 새 메모 삽입
+    const rows = memoData
+      .filter(m => m.note && m.note.trim() !== '')
+      .map(m => {
+        const parts = m.note.split('|');
+        return {
+          date: targetDate, grade: parseInt(grade), class_num: parseInt(classNum),
+          name: m.name, status: parts[0]?.trim() || '', reason: parts[1]?.trim() || ''
+        };
+      })
+      .filter(r => r.status);
+
+    if (rows.length > 0) await SUPABASE.insert('pre_memos', rows);
+    return true;
+  },
+
+  async getHomeroomTodayStatus(grade, classNum, targetDate) {
+    const data = await SUPABASE.select('attendance',
+      `?date=eq.${targetDate}&grade=eq.${grade}&class_num=eq.${classNum}`
+    );
+    return data.map(r => ({
+      prog: r.program, period: r.period,
+      name: r.name, status: r.status, reason: r.reason || ''
+    }));
+  },
+
+  async getHomeroomAttendance(grade, classNum, month) {
+    const data = await SUPABASE.select('attendance',
+      `?grade=eq.${grade}&class_num=eq.${classNum}&month=eq.${encodeURIComponent(month)}&status=neq.휴강`
+    );
+
+    const studentStats = {};
+    data.forEach(r => {
+      if (!studentStats[r.name]) {
+        studentStats[r.name] = { present: 0, absent: 0, late: 0, leave: 0, total: 0, programs: {} };
+      }
+      studentStats[r.name].total++;
+      if (r.status === '출석') studentStats[r.name].present++;
+      else if (r.status === '결석') studentStats[r.name].absent++;
+      else if (r.status === '지각') studentStats[r.name].late++;
+      else if (r.status === '조퇴') studentStats[r.name].leave++;
+    });
+
+    const studentList = Object.keys(studentStats).sort((a, b) => a.localeCompare(b, 'ko-KR')).map(name => {
+      const s = studentStats[name];
+      return {
+        name, present: s.present, absent: s.absent, late: s.late, leave: s.leave,
+        total: s.total, rate: s.total > 0 ? Math.round((s.present / s.total) * 100) : 0
+      };
+    });
+
+    return { records: data, studentList };
+  },
+
+  async saveClassNotice(grade, classNum, notice) {
+    const today = new Date().toISOString().slice(0, 10);
+    await SUPABASE.delete('pre_memos',
+      `?date=eq.${today}&grade=eq.${grade}&class_num=eq.${classNum}&name=eq.__공지__`
+    );
+    if (notice && notice.trim()) {
+      await SUPABASE.insert('pre_memos', [{
+        date: today, grade: parseInt(grade), class_num: parseInt(classNum),
+        name: '__공지__', status: notice.trim(), reason: ''
+      }]);
+    }
+    return { success: true };
+  },
+
+  async getClassNotice(grade, classNum) {
+    const today = new Date().toISOString().slice(0, 10);
+    const data = await SUPABASE.select('pre_memos',
+      `?date=eq.${today}&grade=eq.${grade}&class_num=eq.${classNum}&name=eq.__공지__`
+    );
+    return data.length > 0 ? data[0].status : '';
+  },
+
+  // ==========================================
+  // 🟣 관리자
+  // ==========================================
+
+  async getAdminAllData(targetDate, periodType) {
+    const dateRange = this._getDateRange(periodType, targetDate);
+
+    const [allAttendance, submissions] = await Promise.all([
+      SUPABASE.select('attendance',
+        `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`
+      ),
+      SUPABASE.select('submissions',
+        `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`
+      )
+    ]);
+
+    // daily 통계
+    const dailyData = allAttendance.filter(r => r.date === targetDate);
+    const progStats = {};
+    dailyData.forEach(r => {
+      if (!progStats[r.program]) progStats[r.program] = { total: 0, present: 0, absent: 0, late: 0, leave: 0 };
+      progStats[r.program].total++;
+      if (r.status === '출석') progStats[r.program].present++;
+      else if (r.status === '결석') progStats[r.program].absent++;
+      else if (r.status === '지각') progStats[r.program].late++;
+      else if (r.status === '조퇴') progStats[r.program].leave++;
+    });
+
+    const daily = {
+      present: dailyData.filter(r => r.status === '출석').length,
+      absent: dailyData.filter(r => r.status === '결석').length,
+      late: dailyData.filter(r => r.status === '지각').length,
+      leave: dailyData.filter(r => r.status === '조퇴').length,
+      canceled: dailyData.filter(r => r.status === '휴강').length,
+      progStats,
+      records: dailyData.map(r => ({
+        recordKey: { date: r.date, prog: r.program, period: r.period, grade: String(r.grade), classNum: String(r.class_num), name: r.name },
+        date: r.date, prog: r.program, period: r.period,
+        grade: r.grade, classNum: r.class_num, name: r.name,
+        status: r.status, reason: r.reason || '', recorder: r.recorder || ''
+      }))
+    };
+
+    // multi 통계
+    const filteredRecords = allAttendance.filter(r => r.status !== '휴강');
+    const multiProgStats = {};
+    const datesByProg = {};
+    const studentStatsMap = {};
+    const totalStats = { present: 0, absent: 0, late: 0, leave: 0, canceled: 0 };
+
+    allAttendance.forEach(r => {
+      if (r.status === '휴강') { totalStats.canceled++; return; }
+      if (!multiProgStats[r.program]) multiProgStats[r.program] = { present: 0, absent: 0, late: 0, leave: 0, canceled: 0 };
+      if (!datesByProg[r.program]) datesByProg[r.program] = {};
+      datesByProg[r.program][r.date] = true;
+      if (r.status === '출석') { multiProgStats[r.program].present++; totalStats.present++; }
+      else if (r.status === '결석') { multiProgStats[r.program].absent++; totalStats.absent++; }
+      else if (r.status === '지각') { multiProgStats[r.program].late++; totalStats.late++; }
+      else if (r.status === '조퇴') { multiProgStats[r.program].leave++; totalStats.leave++; }
+    });
+
+    Object.keys(datesByProg).forEach(prog => {
+      multiProgStats[prog].classDays = Object.keys(datesByProg[prog]).length;
+    });
+
+    filteredRecords.forEach(r => {
+      const key = `${r.grade}_${r.class_num}_${r.name}_${r.program}`;
+      if (!studentStatsMap[key]) {
+        studentStatsMap[key] = { grade: r.grade, classNum: r.class_num, name: r.name, prog: r.program, present: 0, absent: 0, late: 0, leave: 0, total: 0 };
+      }
+      studentStatsMap[key].total++;
+      if (r.status === '출석') studentStatsMap[key].present++;
+      else if (r.status === '결석') studentStatsMap[key].absent++;
+      else if (r.status === '지각') studentStatsMap[key].late++;
+      else if (r.status === '조퇴') studentStatsMap[key].leave++;
+    });
+
+    const studentList = Object.values(studentStatsMap).map(s => ({
+      ...s, rate: s.total > 0 ? Math.round((s.present / s.total) * 100) : 0
+    })).sort((a, b) => a.rate - b.rate);
+
+    const multi = {
+      periodType, startDate: dateRange.startDate, endDate: dateRange.endDate,
+      totalStats, progStats: multiProgStats, studentList,
+      absentStudents: [], sheet3: [], sheet4: []
+    };
+
+    // 제출현황
+    const submit = await this._buildSubmitData(submissions, dateRange);
+
+    return { daily, multi, submit, lateSubmitCount: submit.lateSubmitCount || 0 };
+  },
+
+  async getRecordsByPeriod(targetDate, periodType) {
+    const dateRange = this._getDateRange(periodType, targetDate);
+    const data = await SUPABASE.select('attendance',
+      `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`
+    );
+    const records = data.map(r => ({
+      recordKey: { date: r.date, prog: r.program, period: r.period, grade: String(r.grade), classNum: String(r.class_num), name: r.name },
+      date: r.date, prog: r.program, period: r.period,
+      grade: r.grade, classNum: r.class_num, name: r.name,
+      status: r.status, reason: r.reason || '', recorder: r.recorder || ''
+    }));
+    return { records, startDate: dateRange.startDate, endDate: dateRange.endDate };
+  },
+
+  async updateAdminRecord(recordKey, newStatus, newReason) {
+    await SUPABASE.update('attendance',
+      { status: newStatus, reason: newReason },
+      `?date=eq.${recordKey.date}&program=eq.${encodeURIComponent(recordKey.prog)}&period=eq.${encodeURIComponent(recordKey.period)}&grade=eq.${recordKey.grade}&class_num=eq.${recordKey.classNum}&name=eq.${encodeURIComponent(recordKey.name)}`
+    );
+    return true;
+  },
+
+  async getSubmissionStatus(targetDate, periodType) {
+    const dateRange = this._getDateRange(periodType, targetDate);
+    const submissions = await SUPABASE.select('submissions',
+      `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`
+    );
+    return this._buildSubmitData(submissions, dateRange);
+  },
+
+  async generateAbsentMessages(targetDate, periodType) {
+    const dateRange = this._getDateRange(periodType, targetDate);
+    const data = await SUPABASE.select('attendance',
+      `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}&status=eq.결석`
+    );
+
+    const absentByStudent = {};
+    data.forEach(r => {
+      const key = `${r.grade}_${r.class_num}_${r.name}`;
+      if (!absentByStudent[key]) {
+        absentByStudent[key] = { grade: r.grade, classNum: r.class_num, name: r.name, absences: [], totalAbsent: 0, rate: 100 };
+      }
+      const dateObj = new Date(r.date + 'T00:00:00');
+      const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+      absentByStudent[key].absences.push({
+        date: r.date, day: dayNames[dateObj.getDay()],
+        dateDisplay: `${parseInt(r.date.split('-')[1])}/${parseInt(r.date.split('-')[2])}(${dayNames[dateObj.getDay()]})`,
+        prog: r.program, period: r.period, reason: r.reason || '사유 미등록'
       });
+    });
 
-      const json = await res.json();
+    const isDaily = !periodType || periodType === 'daily';
+    const messages = [];
 
-      if (!json.success) {
-        // 세션 만료 처리
-        if (json.code === 401) {
-          API.clearSession();
-          throw new Error('세션이 만료되었습니다. 다시 로그인하세요.');
+    for (const key in absentByStudent) {
+      const s = absentByStudent[key];
+      if (isDaily) {
+        s.absences.forEach(a => {
+          let msg = '[순창초 방과후학교 안내]\n학부모님 안녕하세요.\n';
+          msg += `${s.grade}학년 ${s.classNum}반 ${s.name} 학생이 [${a.prog}] 수업(${a.day}요일 ${a.period})에 결석하였습니다.\n`;
+          msg += `• 사유: ${a.reason}\n• 누적 결석: ${s.totalAbsent}회\n• 현재 출석률: ${s.rate}%\n`;
+          if (s.totalAbsent >= 3) msg += '⚠️ 결석이 3회 이상입니다.\n';
+          msg += '\n문의: 순창초 늘봄지원실';
+          messages.push({ name: `${s.grade}-${s.classNum} ${s.name}`, prog: a.prog, message: msg });
+        });
+      } else {
+        let msg = '[순창초 방과후학교 안내]\n학부모님 안녕하세요.\n';
+        s.absences.forEach(a => { msg += `• ${a.dateDisplay} [${a.prog}] ${a.period} - ${a.reason}\n`; });
+        msg += `\n• 결석: ${s.absences.length}회\n• 출석률: ${s.rate}%\n\n문의: 순창초 늘봄지원실`;
+        messages.push({ name: `${s.grade}-${s.classNum} ${s.name}`, prog: '통합', message: msg });
+      }
+    }
+
+    const studentCount = Object.keys(absentByStudent).length;
+    let summaryMsg = '';
+    if (studentCount > 0) {
+      summaryMsg = `[결석 현황 요약]\n총 ${studentCount}명 결석\n\n`;
+      Object.values(absentByStudent).forEach((s, i) => {
+        summaryMsg += `${i + 1}. ${s.grade}-${s.classNum} ${s.name} | ${s.absences.length}회 | 출석률 ${s.rate}%\n`;
+      });
+    }
+
+    return { individual: messages, summary: summaryMsg, count: messages.length, studentCount, startDate: dateRange.startDate, endDate: dateRange.endDate };
+  },
+
+  // ==========================================
+  // 📄 서류 (PDF — 추후 구현)
+  // ==========================================
+
+  async getAttendanceDocList() {
+    return [];
+  },
+
+  async generateAttendanceDoc(month, targetProg) {
+    // PDF 생성은 index.html에서 직접 처리
+    return { success: true, url: '', isUpdate: false };
+  },
+
+  async generateActivityDoc(month, targetProg) {
+    return { success: true, url: '', isUpdate: false };
+  },
+
+  async finalizeMonth(month, docType) {
+    return { success: true, message: `${month} ${docType} 마감 완료` };
+  },
+
+  // ==========================================
+  // 👤 학생관리
+  // ==========================================
+
+  async getAdminStudentList(grade, classNum, targetDate) {
+    let params = '?select=grade,class_num,name,perm_note';
+    if (grade !== '전체') params += `&grade=eq.${grade}`;
+    if (classNum !== '전체') params += `&class_num=eq.${classNum}`;
+
+    const studentsRaw = await SUPABASE.select('students', params);
+    const seen = {};
+    const students = [];
+    studentsRaw.forEach(s => {
+      const key = `${s.grade}_${s.class_num}_${s.name}`;
+      if (!seen[key]) {
+        seen[key] = true;
+        students.push(s);
+      }
+    });
+
+    const memos = await SUPABASE.select('pre_memos',
+      `?date=eq.${targetDate}${grade !== '전체' ? `&grade=eq.${grade}` : ''}${classNum !== '전체' ? `&class_num=eq.${classNum}` : ''}&name=neq.__공지__`
+    );
+    const memoMap = {};
+    memos.forEach(m => {
+      memoMap[`${m.grade}_${m.class_num}_${m.name}`] = `${m.status}|${m.reason || ''}`;
+    });
+
+    return students.sort((a, b) => {
+      if (a.grade !== b.grade) return a.grade - b.grade;
+      if (a.class_num !== b.class_num) return a.class_num - b.class_num;
+      return a.name.localeCompare(b.name, 'ko-KR');
+    }).map(s => ({
+      grade: s.grade, classNum: s.class_num, name: s.name,
+      permNote: s.perm_note || '',
+      dailyNote: memoMap[`${s.grade}_${s.class_num}_${s.name}`] || ''
+    }));
+  },
+
+  async saveAdminDailyNotes(grade, classNum, memoData) {
+    const today = new Date().toISOString().slice(0, 10);
+    await SUPABASE.delete('pre_memos',
+      `?date=eq.${today}&grade=eq.${grade}&class_num=eq.${classNum}&name=neq.__공지__`
+    );
+    const rows = memoData
+      .filter(m => m.note && m.note.trim())
+      .map(m => {
+        const parts = m.note.split('|');
+        return {
+          date: today, grade: parseInt(grade), class_num: parseInt(classNum),
+          name: m.name, status: parts[0]?.trim() || '', reason: parts[1]?.trim() || ''
+        };
+      })
+      .filter(r => r.status);
+    if (rows.length > 0) await SUPABASE.insert('pre_memos', rows);
+    return true;
+  },
+
+  async savePermNote(grade, classNum, name, permNote) {
+    await SUPABASE.update('students',
+      { perm_note: permNote },
+      `?grade=eq.${grade}&class_num=eq.${classNum}&name=eq.${encodeURIComponent(name)}`
+    );
+    return true;
+  },
+
+  async getActivityLogList(month, progName) {
+    let params = `?month=eq.${encodeURIComponent(month)}`;
+    if (progName && progName !== '전체') {
+      params += `&program=eq.${encodeURIComponent(progName)}`;
+    }
+    const data = await SUPABASE.select('activity_logs', params + '&order=program.asc,date.asc');
+    return data.map((item, idx) => ({
+      rowIndex: idx,
+      date: item.date, day: item.day, prog: item.program,
+      instructor: item.instructor, period: item.period,
+      startTime: item.start_time, endTime: item.end_time,
+      content: item.content || '', remark: item.remark || '',
+      _id: item.id
+    }));
+  },
+
+  async updateActivityLog(rowIndex, newContent) {
+    if (!activityLogData[rowIndex]) return false;
+    const id = activityLogData[rowIndex]._id;
+    await SUPABASE.update('activity_logs', { content: newContent }, `?id=eq.${id}`);
+    return true;
+  },
+
+  async getInstMissingList(progName, month) {
+    const data = await SUPABASE.select('submissions',
+      `?program=eq.${encodeURIComponent(progName)}&month=eq.${encodeURIComponent(month)}`
+    );
+    const today = new Date().toISOString().slice(0, 10);
+
+    function cleanSt(val) {
+      return String(val).replace(/\s/g, '').replace(/[^\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/g, '');
+    }
+
+    return data
+      .filter(item => {
+        if (item.date > today) return false;
+        const attendDone = cleanSt(item.attend_status).includes('제출완료') || cleanSt(item.attend_status).includes('휴강');
+        const actDone = cleanSt(item.activity_status).includes('제출완료') || cleanSt(item.activity_status).includes('휴강');
+        return !(attendDone && actDone);
+      })
+      .map(item => {
+        const attendDone = cleanSt(item.attend_status).includes('제출완료') || cleanSt(item.attend_status).includes('휴강');
+        const actDone = cleanSt(item.activity_status).includes('제출완료') || cleanSt(item.activity_status).includes('휴강');
+        return {
+          date: item.date, day: item.day, period: item.period,
+          prog: item.program, instructor: item.instructor,
+          attendDone, activityDone: actDone
+        };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+  },
+
+  // ==========================================
+  // 🔧 내부 헬퍼 함수
+  // ==========================================
+
+  async _getInstructor(progName) {
+    const data = await SUPABASE.select('instructors',
+      `?program=eq.${encodeURIComponent(progName)}&select=instructor_name`
+    );
+    return data.length > 0 ? data[0].instructor_name : '';
+  },
+
+  async _updateSubmission(date, program, period, day, attendStatus, activityStatus, instructor) {
+    const today = new Date().toISOString().slice(0, 10);
+    const isLate = date < today;
+
+    let params = `?date=eq.${date}&program=eq.${encodeURIComponent(program)}`;
+    if (period) params += `&period=eq.${encodeURIComponent(period)}`;
+
+    const existing = await SUPABASE.select('submissions', params);
+
+    if (existing.length > 0) {
+      const updateData = {};
+      if (attendStatus) updateData.attend_status = attendStatus;
+      if (activityStatus) updateData.activity_status = activityStatus;
+      if (isLate) {
+        updateData.late_submit = '✅ 소급입력';
+        updateData.late_submit_time = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      }
+      await SUPABASE.update('submissions', updateData, params);
+    } else {
+      const month = `${new Date(date).getMonth() + 1}월`;
+      await SUPABASE.insert('submissions', [{
+        date, day: day || '', period: period || '', program,
+        instructor: instructor || '',
+        attend_status: attendStatus || '❌ 미제출',
+        activity_status: activityStatus || '❌ 미제출',
+        submit_time: new Date().toTimeString().slice(0, 8),
+        month,
+        late_submit: isLate ? '✅ 소급입력' : '',
+        late_submit_time: isLate ? new Date().toISOString().slice(0, 16).replace('T', ' ') : ''
+      }]);
+    }
+  },
+
+  async _buildSubmitData(submissions, dateRange) {
+    function cleanSt(val) {
+      return String(val).replace(/\s/g, '').replace(/[^\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/g, '');
+    }
+
+    const submitted = [];
+    const notSubmitted = [];
+    const lateSubmits = [];
+
+    submissions.forEach(item => {
+      const attendClean = cleanSt(item.attend_status);
+      const activityClean = cleanSt(item.activity_status);
+      const attendDone = attendClean.includes('제출완료') || attendClean.includes('휴강');
+      const actDone = activityClean.includes('제출완료') || activityClean.includes('휴강');
+
+      const obj = {
+        date: item.date, day: item.day, period: item.period,
+        prog: item.program, instructor: item.instructor || '',
+        attendStatus: item.attend_status, activityStatus: item.activity_status,
+        submitTime: item.submit_time || '',
+        lateSubmit: item.late_submit || '',
+        lateSubmitTime: item.late_submit_time || ''
+      };
+
+      if (attendDone && actDone) submitted.push(obj);
+      else notSubmitted.push(obj);
+
+      if (item.late_submit === '✅ 소급입력') lateSubmits.push(obj);
+    });
+
+    submitted.sort((a, b) => a.date.localeCompare(b.date) || a.period.localeCompare(b.period));
+    notSubmitted.sort((a, b) => a.date.localeCompare(b.date) || a.period.localeCompare(b.period));
+    lateSubmits.sort((a, b) => b.date.localeCompare(a.date));
+
+    // 기간 밖 미제출
+    const historyRecords = [];
+
+    return {
+      total: submitted.length + notSubmitted.length,
+      submittedCount: submitted.length,
+      notSubmittedCount: notSubmitted.length,
+      submitted, notSubmitted,
+      history: historyRecords,
+      lateSubmits, lateSubmitCount: lateSubmits.length,
+      startDate: dateRange.startDate, endDate: dateRange.endDate
+    };
+  },
+
+  _getDateRange(periodType, dateValue) {
+    const d = new Date(dateValue + 'T00:00:00');
+    let startDate, endDate;
+    switch (periodType) {
+      case 'daily':
+        startDate = endDate = dateValue; break;
+      case 'weekly':
+        const dow = d.getDay();
+        const mondayOffset = dow === 0 ? -6 : 1 - dow;
+        const monday = new Date(d); monday.setDate(d.getDate() + mondayOffset);
+        const friday = new Date(monday); friday.setDate(monday.getDate() + 4);
+        startDate = monday.toISOString().slice(0, 10);
+        endDate = friday.toISOString().slice(0, 10);
+        break;
+      case 'monthly':
+        startDate = dateValue.slice(0, 7) + '-01';
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        endDate = lastDay.toISOString().slice(0, 10);
+        break;
+      case 'semester':
+        const month = d.getMonth() + 1;
+        if (month >= 3 && month <= 7) {
+          startDate = d.getFullYear() + '-03-01';
+          endDate = d.getFullYear() + '-07-31';
+        } else {
+          startDate = d.getFullYear() + '-08-01';
+          endDate = d.getFullYear() + '-12-31';
         }
-        throw new Error(json.error || '서버 오류가 발생했습니다.');
-      }
-
-      return json.data;
-
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        throw new Error('요청 시간 초과. 서류 생성은 수분이 소요됩니다.');
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeout);
+        break;
+      case 'yearly':
+        startDate = d.getFullYear() + '-01-01';
+        endDate = d.getFullYear() + '-12-31';
+        break;
+      default:
+        startDate = endDate = dateValue;
     }
-  },
-
-  // ── 재시도 래퍼 (최대 2회) ──
-  async callWithRetry(action, params = {}, maxRetry = 2) {
-    for (let i = 0; i <= maxRetry; i++) {
-      try {
-        return await this.call(action, params);
-      } catch (err) {
-        if (i === maxRetry) throw err;
-        showToast(`⚠️ 재시도 중... (${i + 1}/${maxRetry})`);
-        await new Promise(r => setTimeout(r, 1500));
-      }
-    }
-  },
-
-  // ── 인증 ──
-  async verifyPassword(roleOrProgName, inputPwd) {
-    const data = await this.call('verifyPassword', { roleOrProgName, inputPwd });
-    if (data.isValid) {
-      this.setSessionToken(data.sessionToken);
-      sessionStorage.setItem('sessionRole', data.role);
-    }
-    return data;
-  },
-
-  updatePassword: (roleOrProgName, newPwd) =>
-    API.call('updatePassword', { roleOrProgName, newPwd }),
-
-  getPasswordList: () =>
-    API.call('getPasswordList'),
-
-  // ── 초기 로딩 ──
-  getInitialData: () =>
-    API.call('getInitialData'),
-
-  // ── 강사 ──
-  getInstDashboardData: (progName, targetDay, targetPeriod, selectedDate) =>
-    API.call('getInstDashboardData', { progName, targetDay, targetPeriod, selectedDate }),
-
-  saveAttendanceData: (selectedDate, progName, day, period, attendanceList, isCanceled, substituteInstructor) =>
-    API.callWithRetry('saveAttendanceData', { selectedDate, progName, day, period, attendanceList, isCanceled, substituteInstructor }),
-
-  saveActivityLog: (selectedDate, progName, day, periods, activityContent, substituteInstructor) =>
-    API.callWithRetry('saveActivityLog', { selectedDate, progName, day, periods, activityContent, substituteInstructor }),
-
-  getExistingAttendance: (selectedDate, progName, day, period) =>
-    API.call('getExistingAttendance', { selectedDate, progName, day, period }),
-
-  // ── 담임 ──
-  getHomeroomStudents: (grade, classNum, targetDate) =>
-    API.call('getHomeroomStudents', { grade, classNum, targetDate }),
-
-  saveHomeroomMemos: (grade, classNum, memoData, targetDate) =>
-    API.callWithRetry('saveHomeroomMemos', { grade, classNum, memoData, targetDate }),
-
-  getHomeroomTodayStatus: (grade, classNum, targetDate) =>
-    API.call('getHomeroomTodayStatus', { grade, classNum, targetDate }),
-
-  getHomeroomAttendance: (grade, classNum, month) =>
-    API.call('getHomeroomAttendance', { grade, classNum, month }),
-
-  saveClassNotice: (grade, classNum, notice) =>
-    API.call('saveClassNotice', { grade, classNum, notice }),
-
-  getClassNotice: (grade, classNum) =>
-    API.call('getClassNotice', { grade, classNum }),
-
-  // ── 관리자 ──
-  getAdminAllData: (targetDate, periodType) =>
-    API.call('getAdminAllData', { targetDate, periodType }),
-
-  getRecordsByPeriod: (targetDate, periodType) =>
-    API.call('getRecordsByPeriod', { targetDate, periodType }),
-
-  updateAdminRecord: (recordKey, newStatus, newReason) =>
-    API.callWithRetry('updateAdminRecord', { recordKey, newStatus, newReason }),
-
-  getSubmissionStatus: (targetDate, periodType) =>
-    API.call('getSubmissionStatus', { targetDate, periodType }),
-
-  generateAbsentMessages: (targetDate, periodType) =>
-    API.call('generateAbsentMessages', { targetDate, periodType }),
-
-  // ── 서류 ──
-  getAttendanceDocList: () =>
-    API.call('getAttendanceDocList'),
-
-  generateAttendanceDoc: (month, targetProg) =>
-    API.call('generateAttendanceDoc', { month, targetProg }, 600000),
-
-  generateActivityDoc: (month, targetProg) =>
-    API.call('generateActivityDoc', { month, targetProg }, 600000),
-
-  finalizeMonth: (month, docType) =>
-    API.call('finalizeMonth', { month, docType }, 600000),
-
-  // ── 학생관리 ──
-  getAdminStudentList: (grade, classNum, targetDate) =>
-    API.call('getAdminStudentList', { grade, classNum, targetDate }),
-
-  saveAdminDailyNotes: (grade, classNum, memoData) =>
-    API.callWithRetry('saveAdminDailyNotes', { grade, classNum, memoData }),
-
-  savePermNote: (grade, classNum, name, permNote) =>
-    API.callWithRetry('savePermNote', { grade, classNum, name, permNote }),
-
-  getActivityLogList: (month, progName) =>
-    API.call('getActivityLogList', { month, progName }),
-
-  updateActivityLog: (rowIndex, newContent) =>
-    API.callWithRetry('updateActivityLog', { rowIndex, newContent }),
-
-  // ── 강사 미입력현황 ──
-  getInstMissingList: (progName, month) =>
-    API.call('getInstMissingList', { progName, month })
+    return { startDate, endDate };
+  }
 };
