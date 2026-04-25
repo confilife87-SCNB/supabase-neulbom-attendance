@@ -338,11 +338,15 @@
   <div style="font-size:3rem;">🔐</div>
   <div style="font-weight:700; font-size:1.1rem; text-align:center;">최초 설정</div>
   <div style="font-size:0.85rem; color:var(--text-sub); text-align:center; line-height:1.6;">
-    관리자로부터 받은 접속 코드를 입력하세요.<br>최초 1회만 입력하면 됩니다.
+    관리자로부터 받은 접속 코드와 DB 키를 입력하세요.<br>최초 1회만 입력하면 됩니다.
   </div>
   <div class="select-group" style="width:100%;">
-    <label>접속 코드</label>
+    <label>접속 코드 (secretToken)</label>
     <input type="password" id="setup-token-input" placeholder="접속 코드 입력">
+  </div>
+  <div class="select-group" style="width:100%;">
+    <label>DB 키 (Supabase anon key)</label>
+    <input type="password" id="setup-supabase-key-input" placeholder="DB 키 입력">
   </div>
   <button class="btn-action blue" style="width:100%;" onclick="saveSetupToken()">확인</button>
 </div>
@@ -1487,12 +1491,11 @@ document.addEventListener("DOMContentLoaded", async function() {
   document.getElementById('admin-date').value = todayStr;
 
   // secretToken 확인
-  if (!API.getSecretToken()) {
+  if (!API.getSecretToken() || !SUPABASE.getKey()) {
     document.getElementById('portal-view').style.display = 'none';
     document.getElementById('setup-view').style.display = 'flex';
     return;
   }
-
   restoreLastLogin();
   showLoading(true);
 
@@ -1544,12 +1547,14 @@ document.addEventListener("DOMContentLoaded", async function() {
   
 function saveSetupToken() {
   var token = document.getElementById('setup-token-input').value.trim();
+  var supabaseKey = document.getElementById('setup-supabase-key-input').value.trim();
   if (!token) { showToast('접속 코드를 입력하세요.'); return; }
+  if (!supabaseKey) { showToast('DB 키를 입력하세요.'); return; }
   API.setSecretToken(token);
+  SUPABASE.setKey(supabaseKey);
   document.getElementById('setup-view').style.display = 'none';
   document.getElementById('portal-view').style.display = 'flex';
   showToast('✅ 설정 완료! 앱을 사용할 수 있습니다.');
-  // 초기 데이터 로딩 재시작
   location.reload();
 }
   
