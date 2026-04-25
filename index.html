@@ -2553,13 +2553,16 @@ async function adminLogin() {
   // 기간 탭 전환
   function switchPeriod(type) {
     currentPeriodType = type;
-    document.querySelectorAll('.btn-period').forEach(function(btn) { 
-      btn.classList.remove('active'); 
+    document.querySelectorAll('.btn-period').forEach(function(btn) {
+      btn.classList.remove('active');
     });
-    event.target.classList.add('active');
+    // event 전역 참조 제거 → 버튼에서 직접 찾기
+    document.querySelectorAll('.btn-period').forEach(function(btn) {
+      if (btn.getAttribute('onclick') === "switchPeriod('" + type + "')") {
+        btn.classList.add('active');
+      }
+    });
     loadAdminData();
-
-    // 미제출 탭이 열려 있을 경우 기간 변경 시 재조회
     loadSubmissionStatus();
   }
 
@@ -3549,7 +3552,7 @@ async function loadActivityLogList() {
       }
 
       html += '  </div>';
-      html += '  <button class="btn-edit" onclick="openActivityModal(' + item.rowIndex + ', \'' +
+      html += '  <button class="btn-edit" onclick="openActivityModal(\'' + item._id + '\', \'' +
               escapeHtml(item.prog).replace(/'/g, "\\'") + '\', \'' +
               dateDisplay.replace(/'/g, "\\'") + '\', \'' +
               escapeHtml(item.content).replace(/'/g, "\\'") + '\')">수정</button>';
@@ -3565,8 +3568,8 @@ async function loadActivityLogList() {
 
   var activeActivityRowIndex = null;
 
-  function openActivityModal(rowIndex, progName, dateDisplay, content) {
-    activeActivityRowIndex = rowIndex;
+  function openActivityModal(itemId, progName, dateDisplay, content) {
+    activeActivityRowIndex = itemId; // uuid 저장
     document.getElementById('activity-modal-title').innerText = progName + ' — ' + dateDisplay + ' 활동일지 수정';
     document.getElementById('activity-modal-content').value = content;
     document.getElementById('activity-modal').style.display = 'flex';
@@ -4259,8 +4262,8 @@ async function generateAttendancePDF(month, targetProg) {
   try {
     // 1. 데이터 조회
     const [students, attendanceRaw, contacts, instructors] = await Promise.all([
-      SUPABASE.select('students', '?select=grade,class_num,name,program,perm_note'),
-      SUPABASE.select('attendance', `?month=eq.${encodeURIComponent(month)}&status=neq.휴강`),
+      SUPABASE.select('students', '?select=grade,class_num,name,program,perm_note&order=grade.asc,class_num.asc,name.asc'),
+      SUPABASE.select('attendance', `?month=eq.${encodeURIComponent(month)}&status=neq.휴강&order=program.asc,date.asc`),
       SUPABASE.select('contacts', '?select=grade,class_num,name,phone'),
       SUPABASE.select('instructors', '?select=program,instructor_name')
     ]);
@@ -4501,9 +4504,36 @@ async function generateAttendancePDF(month, targetProg) {
     setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
 
   } catch (err) {
-    showToast('❌ 출석부 생성 실패: ' + err.message);
+    showLoading(false);
+    document.getElementById('portal-view').style.display = 'none';
+    document.body.innerHTML += `
+      <div style="
+        position:fixed; top:0; left:0; width:100%; height:100%;
+        display:flex; flex-direction:column;
+        align-items:center; justify-content:center;
+        background:#fff; z-index:9999; padding:24px; text-align:center;
+      ">
+        <div style="font-size:3rem; margin-bottom:16px;">⚠️</div>
+        <div style="font-size:1.1rem; font-weight:700; margin-bottom:8px;">
+          앱 초기화에 실패했습니다
+        </div>
+        <div style="font-size:0.85rem; color:#636e72; margin-bottom:24px; line-height:1.6;">
+          네트워크 연결을 확인하고<br>아래 버튼을 눌러 다시 시도하세요.
+        </div>
+        <button onclick="location.reload()"
+          style="
+            background:#0984e3; color:white; border:none;
+            padding:14px 28px; border-radius:8px;
+            font-size:1rem; font-weight:700; cursor:pointer;
+          ">
+          🔄 다시 시도
+        </button>
+        <div style="font-size:0.75rem; color:#b2bec3; margin-top:16px;">
+          오류: ${err.message}
+        </div>
+      </div>
+    `;
   } finally {
-    document.querySelector('#loading .load-text').innerText = '데이터 연동 중...';
     showLoading(false);
   }
 }
