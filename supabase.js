@@ -30,11 +30,16 @@ const SUPABASE = {
 
     const url = `${CONFIG.SUPABASE_URL}/rest/v1/${table}${params}`;
 
+    // sb_publishable_ 형식과 eyJ 형식 모두 지원
+    const authHeader = key.startsWith('sb_publishable_')
+      ? key
+      : `Bearer ${key}`;
+
     const res = await fetch(url, {
       method,
       headers: {
         'apikey': key,
-        'Authorization': `Bearer ${key}`,
+        'Authorization': authHeader,
         'Content-Type': 'application/json',
         'Prefer': method === 'POST' ? 'return=representation' : ''
       },
