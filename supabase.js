@@ -2,19 +2,40 @@
 
 const SUPABASE = {
 
-  // ── Supabase API 키 관리 (localStorage) ──
+  // ── API 키를 sessionStorage에서 읽기 ──
   getKey() {
-    return localStorage.getItem('supabaseKey') || '';
+    return sessionStorage.getItem('supabaseKey') || '';
   },
 
   setKey(key) {
-    localStorage.setItem('supabaseKey', key);
+    sessionStorage.setItem('supabaseKey', key);
+  },
+
+  // ── 앱 최초 로딩 시 settings 테이블에서 key 가져오기 ──
+  async loadKey() {
+    const url = `${CONFIG.SUPABASE_URL}/rest/v1/settings?role=eq._appkey&select=password`;
+
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!res.ok) throw new Error('앱 초기화 실패. 관리자에게 문의하세요.');
+
+    const data = await res.json();
+    if (!data || data.length === 0) throw new Error('앱 키를 찾을 수 없습니다.');
+
+    const key = data[0].password;
+    this.setKey(key);
+    return key;
   },
 
   // ── 핵심 통신 함수 ──
   async query(method, table, body = null, params = '') {
     const key = this.getKey();
-    if (!key) throw new Error('Supabase 키가 설정되지 않았습니다.');
+    if (!key) throw new Error('세션이 만료되었습니다. 새로고침 후 다시 시도해주세요.');
 
     const url = `${CONFIG.SUPABASE_URL}/rest/v1/${table}${params}`;
 
@@ -30,7 +51,7 @@ const SUPABASE = {
     });
 
     if (!res.ok) {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       throw new Error(err.message || `Supabase 오류: ${res.status}`);
     }
 
