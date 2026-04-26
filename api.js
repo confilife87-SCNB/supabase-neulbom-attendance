@@ -777,6 +777,54 @@ const API = {
     };
   },
 
+  async setMonthFinalized(month, shouldFinalize) {
+    const now = new Date().toLocaleString('ko-KR');
+    const requiredDocTypes = ['출석부', '활동일지'];
+
+    const existing = await SUPABASE.select(
+      'doc_history',
+      `?month=eq.${encodeURIComponent(month)}&select=id,month,doc_type,status`
+    );
+
+    const existingTypes = new Set((existing || []).map(d => d.doc_type));
+    const missingTypes = requiredDocTypes.filter(t => !existingTypes.has(t));
+
+    if (missingTypes.length > 0) {
+      return {
+        success: false,
+        message: `${month} ${missingTypes.join(', ')} 문서가 없습니다. 먼저 출석부와 활동일지를 모두 생성/갱신하세요.`
+      };
+    }
+
+    const nextStatus = shouldFinalize ? '확정' : '작업중';
+    const updatedRows = [];
+
+    for (const docType of requiredDocTypes) {
+      const updated = await SUPABASE.update(
+        'doc_history',
+        { status: nextStatus, updated_at: now },
+        `?month=eq.${encodeURIComponent(month)}&doc_type=eq.${encodeURIComponent(docType)}`
+      );
+
+      if (Array.isArray(updated)) updatedRows.push(...updated);
+    }
+
+    if (updatedRows.length < requiredDocTypes.length) {
+      return {
+        success: false,
+        message: '월 마감 상태 변경 중 일부 문서를 찾지 못했습니다. 새로고침 후 다시 시도하세요.'
+      };
+    }
+
+    return {
+      success: true,
+      status: nextStatus,
+      message: shouldFinalize
+        ? `${month} 월 마감 완료`
+        : `${month} 월 마감 해지 완료`
+    };
+  },
+
   // ==========================================
   // 👤 학생관리
   // ==========================================
