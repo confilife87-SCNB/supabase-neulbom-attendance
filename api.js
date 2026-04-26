@@ -270,8 +270,24 @@ const API = {
       await SUPABASE.insert('activity_logs', [rowData]);
     }
 
-    // 제출현황 업데이트
-    await this._updateSubmission(selectedDate, progName, null, null, null, '✅ 제출 완료', recorder);
+// 제출현황 업데이트
+// 활동일지는 출결과 같은 date + program + period 행에 반영되어야 합니다.
+// 기존처럼 period/day를 null로 넘기면 day/period가 빈 submissions 행이 새로 생겨
+// 미제출 현황이 잘못 계산됩니다.
+for (const p of periodList) {
+  const targetPeriod = p.trim();
+  if (!targetPeriod) continue;
+
+  await this._updateSubmission(
+    selectedDate,
+    progName,
+    targetPeriod,
+    dayOfWeek,
+    null,
+    '✅ 제출 완료',
+    recorder
+  );
+}
 
     return { success: true };
   },
