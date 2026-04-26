@@ -2457,24 +2457,36 @@ async function confirmInstSave() {
 
   try {
     // 활동일지 저장 (있을 경우)
-    if (actContent) {
-      var allPeriods = [];
-      if (programData[currentProg] && programData[currentProg][currentDay]) {
-        allPeriods = programData[currentProg][currentDay];
-      }
-      var periodsStr = allPeriods.length > 0 ? allPeriods.join(',') : currentPeriod;
-      try {
-        await API.saveActivityLog(currentDate, currentProg, currentDay, periodsStr, actContent, subName);
-      } catch (actErr) {
-        console.log('활동일지 저장 실패: ' + actErr.message);
-      }
+try {
+  // 1. 출결을 먼저 저장합니다.
+  // 출결 저장 시 submissions에 date + program + period 기준 행이 먼저 만들어집니다.
+  const result = await API.saveAttendanceData(
+    currentDate,
+    currentProg,
+    currentDay,
+    currentPeriod,
+    studentsData,
+    false,
+    subName
+  );
+
+  // 2. 활동일지는 나중에 저장합니다.
+  // 활동일지가 있으면 위에서 만들어진 같은 submissions 행의 activity_status만 업데이트합니다.
+  if (actContent) {
+    try {
+      await API.saveActivityLog(
+        currentDate,
+        currentProg,
+        currentDay,
+        currentPeriod,
+        actContent,
+        subName
+      );
+    } catch (actErr) {
+      console.log('활동일지 저장 실패: ' + actErr.message);
+      showToast('⚠️ 출결은 저장되었지만 활동일지 저장에 실패했습니다.');
     }
-
-    // 출결 저장
-    const result = await API.saveAttendanceData(
-      currentDate, currentProg, currentDay, currentPeriod, studentsData, false, subName
-    );
-
+  }
     isSaved = true;
     document.getElementById('sum-present').innerText = result.summary.present;
     document.getElementById('sum-absent').innerText = result.summary.absent;
