@@ -3245,8 +3245,10 @@ async function loadDocData() {
       return d.month === selectedMonth;
     });
 
+    currentArea.innerHTML = buildMonthClosePanel(selectedMonth);
+
     if (currentDocs.length === 0) {
-      currentArea.innerHTML = '<div class="doc-empty">' +
+      currentArea.innerHTML += '<div class="doc-empty">' +
         selectedMonth + '에 생성된 문서가 없습니다.</div>';
     } else {
       currentDocs.forEach(function(d) {
@@ -3276,6 +3278,80 @@ async function loadDocData() {
         archiveArea.innerHTML += html;
       });
     }
+  }
+
+  function getDocsForMonth(month) {
+    return allDocData.filter(function(d) {
+      return d.month === month;
+    });
+  }
+
+  function getMonthDocStatus(month) {
+    var docs = getDocsForMonth(month);
+
+    var hasAttendance = docs.some(function(d) {
+      return d.docType === '출석부';
+    });
+
+    var hasActivity = docs.some(function(d) {
+      return d.docType === '활동일지';
+    });
+
+    var attendanceConfirmed = docs.some(function(d) {
+      return d.docType === '출석부' && d.status === '확정';
+    });
+
+    var activityConfirmed = docs.some(function(d) {
+      return d.docType === '활동일지' && d.status === '확정';
+    });
+
+    return {
+      docs: docs,
+      ready: hasAttendance && hasActivity,
+      finalized: hasAttendance && hasActivity && attendanceConfirmed && activityConfirmed,
+      partial: (attendanceConfirmed || activityConfirmed) && !(attendanceConfirmed && activityConfirmed)
+    };
+  }
+
+  function isDocMonthFinalized(month) {
+    return getMonthDocStatus(month).finalized;
+  }
+
+  function buildMonthClosePanel(month) {
+    var status = getMonthDocStatus(month);
+
+    var label = '🟡 작업중';
+    var help = '출석부와 활동일지를 모두 생성한 뒤 월 마감을 진행하세요.';
+    var buttonText = '🔒 월 마감';
+    var nextFinalize = 'true';
+    var disabled = '';
+
+    if (!status.ready) {
+      label = '⚪ 문서 준비 필요';
+      disabled = ' disabled style="opacity:0.45; cursor:not-allowed;"';
+    } else if (status.finalized) {
+      label = '✅ 월 마감 완료';
+      help = '마감 해지 후 해당 월 자료를 다시 수정할 수 있습니다.';
+      buttonText = '🔓 마감 해지';
+      nextFinalize = 'false';
+    } else if (status.partial) {
+      label = '🟠 일부 문서만 확정됨';
+      help = '월 마감을 다시 실행하면 출석부와 활동일지가 모두 확정됩니다.';
+    }
+
+    var html = '';
+    html += '<div style="background:var(--input-bg); border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin-bottom:12px;">';
+    html += '  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px;">';
+    html += '    <div style="font-weight:800; color:var(--purple-deep);">📦 ' + escapeHtml(month) + ' 마감 상태</div>';
+    html += '    <div style="font-weight:800; font-size:0.88rem;">' + label + '</div>';
+    html += '  </div>';
+    html += '  <div style="font-size:0.8rem; color:var(--text-sub); line-height:1.5; margin-bottom:10px;">' + help + '</div>';
+    html += '  <button class="btn-action gray" style="margin:0;" onclick="toggleMonthFinalize(\'' + escapeHtml(month) + '\', ' + nextFinalize + ')"' + disabled + '>';
+    html +=      buttonText;
+    html += '  </button>';
+    html += '</div>';
+
+    return html;
   }
 
   function buildDocCard(docInfo, isArchive) {
@@ -3314,11 +3390,11 @@ async function loadDocData() {
     if (docInfo.docType === '출석부') {
       html += '    <button class="btn-action blue" ' +
               '      onclick="createOrUpdateDoc()">' +
-              '      📄 출석부 열기</button>';
+              '      📄 출석부 열기/갱신</button>';
     } else if (docInfo.docType === '활동일지') {
       html += '    <button class="btn-action blue" ' +
               '      onclick="createOrUpdateActivityDoc()">' +
-              '      📄 활동일지 열기</button>';
+              '      📄 활동일지 열기/갱신</button>';
     }
 
     if (!isArchive) {
@@ -3333,18 +3409,6 @@ async function loadDocData() {
                 '      onclick="createOrUpdateActivityDoc()">' +
                 '      🔄 갱신</button>';
       }
-
-      if (!isConfirmed) {
-        html += '    <button class="btn-action gray" ' +
-                '      onclick="finalizeDoc(\'' + escapeHtml(docInfo.month) + '\', \'' +
-                escapeHtml(docInfo.docType) + '\', false)">' +
-                '      🔒 월 마감</button>';
-      } else {
-        html += '    <button class="btn-action gray" ' +
-                '      onclick="finalizeDoc(\'' + escapeHtml(docInfo.month) + '\', \'' +
-                escapeHtml(docInfo.docType) + '\', true)">' +
-                '      🔓 마감 해지</button>';
-      }
     }
 
     html += '  </div>';
@@ -3355,6 +3419,12 @@ async function loadDocData() {
 
 async function createOrUpdateDoc() {
   var month = document.getElementById('doc-month-select').value;
+
+  if (isDocMonthFinalized(month)) {
+    showToast('🔒 월 마감된 자료입니다. 마감 해지 후 갱신하세요.');
+    return;
+  }
+
   if (!confirm(month + ' 출석부를 생성/갱신하시겠습니까?\n\n모든 프로그램의 출석부가 하나의 문서로 생성됩니다.\n생성까지 5~10분 정도 소요됩니다.')) return;
 
   showLoading(true);
@@ -3377,12 +3447,13 @@ async function createOrUpdateDoc() {
   }
 }
 
-async function finalizeDoc(month, docType, isUnfinalize) {
-  var title = isUnfinalize ? '마감 해지' : '월 마감';
-  var icon = isUnfinalize ? '🔓' : '🔒';
-  var message = isUnfinalize
-    ? icon + ' ' + month + ' ' + docType + ' 마감 해지\n\n마감 해지 후에는 해당 월 자료를 다시 수정할 수 있습니다.\n\n진행하시겠습니까?'
-    : icon + ' ' + month + ' ' + docType + ' 월 마감\n\n1. 최신 데이터로 최종 갱신됩니다.\n2. PDF 백업이 자동 생성됩니다.\n3. 마감 후에는 수정 전 마감 해지가 필요합니다.\n\n진행하시겠습니까?';
+async function toggleMonthFinalize(month, shouldFinalize) {
+  var title = shouldFinalize ? '월 마감' : '마감 해지';
+  var icon = shouldFinalize ? '🔒' : '🔓';
+
+  var message = shouldFinalize
+    ? icon + ' ' + month + ' 월 마감\n\n출석부와 활동일지를 모두 확정합니다.\n마감 후에는 해당 월 자료를 수정하려면 먼저 마감 해지가 필요합니다.\n\n진행하시겠습니까?'
+    : icon + ' ' + month + ' 마감 해지\n\n출석부와 활동일지를 다시 작업중 상태로 변경합니다.\n마감 해지 후 해당 월 자료를 수정할 수 있습니다.\n\n진행하시겠습니까?';
 
   if (!confirm(message)) return;
 
@@ -3390,20 +3461,27 @@ async function finalizeDoc(month, docType, isUnfinalize) {
   document.querySelector('#loading .load-text').innerText = icon + ' ' + title + ' 처리 중...';
 
   try {
-    const result = await API.finalizeMonth(month, docType);
+    const result = await API.setMonthFinalized(month, shouldFinalize);
+
     if (result.success) {
       showToast('✅ ' + result.message);
-      loadDocData();
+      await loadDocData();
     } else {
-      showToast('❌ ' + (result.message || '마감 실패'));
+      showToast('❌ ' + (result.message || title + ' 실패'));
     }
   } catch (err) {
-    showToast('❌ 마감 실패: ' + err.message);
+    showToast('❌ ' + title + ' 실패: ' + err.message);
   } finally {
     document.querySelector('#loading .load-text').innerText = '데이터 연동 중...';
     showLoading(false);
   }
 }
+
+// 기존 onclick 호환용입니다. 혹시 브라우저 캐시에 예전 문서별 버튼이 남아 있어도 월 단위로 처리합니다.
+async function finalizeDoc(month, docType, isUnfinalize) {
+  await toggleMonthFinalize(month, !isUnfinalize);
+}
+
   // ==========================================
   // 📝 활동일지만 별도 저장
   // ==========================================
@@ -3442,6 +3520,12 @@ async function saveActivityOnly() {
 
 async function createOrUpdateActivityDoc() {
   var month = document.getElementById('doc-month-select').value;
+
+  if (isDocMonthFinalized(month)) {
+    showToast('🔒 월 마감된 자료입니다. 마감 해지 후 갱신하세요.');
+    return;
+  }
+
   if (!confirm(month + ' 활동일지를 생성/갱신하시겠습니까?\n\n모든 프로그램의 활동일지가 하나의 문서로 생성됩니다.\n생성까지 5~10분 정도 소요됩니다.')) return;
 
   showLoading(true);
@@ -3636,6 +3720,12 @@ async function loadEditData() {
 
 async function createOrUpdateBoth() {
   var month = document.getElementById('doc-month-select').value;
+
+  if (isDocMonthFinalized(month)) {
+    showToast('🔒 월 마감된 자료입니다. 마감 해지 후 갱신하세요.');
+    return;
+  }
+
   if (!confirm(month + ' 출석부와 활동일지를 동시에 생성/갱신하시겠습니까?\n\n생성까지 5~10분 정도 소요됩니다.')) return;
 
   showLoading(true);
