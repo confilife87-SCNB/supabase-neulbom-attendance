@@ -744,19 +744,16 @@
 
       <div id="period-range" style="text-align:center; font-size:0.82rem; color:var(--text-sub); margin-bottom:12px; font-weight:600;"></div>
 
-      <!-- ⭐ 탭에 미제출(기억13), 비밀번호(기억16) 추가 -->
+<!-- 운영 흐름 기준 5개 탭 -->
       <div class="admin-tabs">
-        <button class="btn-tab active" id="tab-chart" onclick="switchAdminTab('chart')">📊<br>통계</button>
-        <button class="btn-tab" id="tab-prog" onclick="switchAdminTab('prog')">📋<br>프로그램</button>
-        <button class="btn-tab" id="tab-student" onclick="switchAdminTab('student')">🧑‍🎓<br>학생</button>
-        <button class="btn-tab" id="tab-submit" onclick="switchAdminTab('submit')">📬<br>미제출</button>
-        <button class="btn-tab" id="tab-edit" onclick="switchAdminTab('edit')">✏️<br>수정</button>
-        <button class="btn-tab" id="tab-msg" onclick="switchAdminTab('msg')">📩<br>결석안내</button>
-        <button class="btn-tab" id="tab-pwd" onclick="switchAdminTab('pwd')">🔑<br>비밀번호</button>
-        <button class="btn-tab" id="tab-doc" onclick="switchAdminTab('doc')">📄<br>서류관리</button>
-        <button class="btn-tab" id="tab-student-manage" onclick="switchAdminTab('student-manage')">👤<br>학생관리</button>
+        <button class="btn-tab active" id="tab-group-status" onclick="switchAdminGroup('status')">📊<br>현황</button>
+        <button class="btn-tab" id="tab-group-alert" onclick="switchAdminGroup('alert')">📬<br>미제출·알림</button>
+        <button class="btn-tab" id="tab-group-edit" onclick="switchAdminGroup('edit')">✏️<br>수정·설정</button>
+        <button class="btn-tab" id="tab-group-msg" onclick="switchAdminGroup('msg')">📩<br>결석안내</button>
+        <button class="btn-tab" id="tab-group-doc" onclick="switchAdminGroup('doc')">📄<br>서류·마감</button>
       </div>
 
+      <!-- 탭1: 차트 -->
       <!-- 탭1: 차트 -->
       <div id="admin-chart-area" class="tab-content">
         <div style="background:var(--surface); padding:16px; border-radius:var(--radius); border:1px solid var(--border);">
@@ -2553,6 +2550,7 @@ async function adminLogin() {
     setHeaderTheme('theme-purple', '🟣 관리자 대시보드');
     currentPeriodType = 'daily';
     loadAdminData();
+    switchAdminGroup('status');
   } catch (err) {
     showToast("❌ " + err.message);
   } finally {
@@ -2578,30 +2576,61 @@ async function adminLogin() {
 
   function onAdminDateChange() { loadAdminData(); }
 
-  // 메인 탭 전환 (⭐ 기억13,16 탭 추가)
-  function switchAdminTab(tab) {
-    currentAdminTab = tab;
-    var tabs = ['chart', 'prog', 'student', 'submit', 'edit', 'msg', 'pwd', 'doc', 'student-manage'];
+// 메인 탭 전환: 운영 흐름 기준 5개 그룹
+  function switchAdminGroup(group) {
+    currentAdminTab = group;
 
-    tabs.forEach(function(t) {
-      document.getElementById('tab-' + t).classList.remove('active');
+    ['status', 'alert', 'edit', 'msg', 'doc'].forEach(function(g) {
+      var btn = document.getElementById('tab-group-' + g);
+      if (btn) btn.classList.remove('active');
+    });
+    var activeBtn = document.getElementById('tab-group-' + group);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    var allAreas = ['chart', 'prog', 'student', 'submit', 'edit', 'msg', 'pwd', 'doc', 'student-manage'];
+    allAreas.forEach(function(t) {
       var area = document.getElementById('admin-' + t + '-area');
       if (area) area.style.display = 'none';
     });
 
-    document.getElementById('tab-' + tab).classList.add('active');
-    var activeArea = document.getElementById('admin-' + tab + '-area');
-    if (activeArea) activeArea.style.display = 'block';
+    function showArea(id) {
+      var area = document.getElementById('admin-' + id + '-area');
+      if (area) area.style.display = 'block';
+    }
 
-    // 탭 전환 시 데이터 로드
-    if (tab === 'submit') loadSubmissionStatus();
-    if (tab === 'edit') loadEditData();
-    if (tab === 'msg') loadAbsentMessages(document.getElementById('admin-date').value);
-    if (tab === 'pwd') loadPasswordList();
-    if (tab === 'doc') loadDocData();
-    if (tab === 'student-manage') initAdminStudentManageTab();
+    if (group === 'status') {
+      showArea('chart');
+      showArea('prog');
+      showArea('student');
+    } else if (group === 'alert') {
+      showArea('submit');
+      showArea('student-manage');
+      loadSubmissionStatus();
+      initAdminStudentManageTab();
+    } else if (group === 'edit') {
+      showArea('edit');
+      showArea('pwd');
+      loadEditData();
+      loadPasswordList();
+    } else if (group === 'msg') {
+      showArea('msg');
+      loadAbsentMessages(document.getElementById('admin-date').value);
+    } else if (group === 'doc') {
+      showArea('doc');
+      loadDocData();
+    }
   }
 
+  // 예전 onclick 호환용: 혹시 캐시에 남아 있어도 새 그룹으로 연결
+  function switchAdminTab(tab) {
+    if (tab === 'chart' || tab === 'prog' || tab === 'student') return switchAdminGroup('status');
+    if (tab === 'submit' || tab === 'student-manage') return switchAdminGroup('alert');
+    if (tab === 'edit' || tab === 'pwd') return switchAdminGroup('edit');
+    if (tab === 'msg') return switchAdminGroup('msg');
+    if (tab === 'doc') return switchAdminGroup('doc');
+  }
+
+  // 데이터 로딩 (통합)
   // 데이터 로딩 (통합)
 async function loadAdminData() {
   var dateValue = document.getElementById('admin-date').value;
@@ -2622,7 +2651,7 @@ async function loadAdminData() {
     renderAdminTodaySummary();
     loadEditData();
 
-    if (currentAdminTab === 'submit') renderSubmitList();
+    if (currentAdminTab === 'alert') renderSubmitList();
     if (currentAdminTab === 'msg') loadAbsentMessages(dateValue);
 
   } catch (err) {
@@ -2686,6 +2715,24 @@ async function loadAdminData() {
     rangeDiv.innerText = (labels[stats.periodType] || '') + ' 조회: ' + stats.startDate + ' ~ ' + stats.endDate;
   }
 
+  function attachAdminSummaryDrillEvents() {
+    var mapping = [
+      ['adm-total', 'all'],
+      ['adm-present', '출석'],
+      ['adm-late', '지각'],
+      ['adm-leave', '조퇴'],
+      ['adm-absent', '결석']
+    ];
+    mapping.forEach(function(pair) {
+      var el = document.getElementById(pair[0]);
+      if (!el) return;
+      var box = el.closest('.stat-box');
+      if (!box) return;
+      box.style.cursor = 'pointer';
+      box.onclick = function() { openAdminDetail('status', '전체', pair[1]); };
+    });
+  }
+
   // 도넛 차트
   function renderAdminChart(stats) {
     if (!stats) return;
@@ -2702,7 +2749,9 @@ async function loadAdminData() {
     if (chartInstance) chartInstance.destroy();
 
     if (total === 0) {
-      chartInstance = new Chart(ctx, {
+      attachAdminSummaryDrillEvents();
+
+    chartInstance = new Chart(ctx, {
         type: 'doughnut',
         data: { labels: ['데이터 없음'], datasets: [{ data: [1], backgroundColor: ['#dfe6e9'], borderWidth: 0 }] },
         options: { responsive: true, plugins: { legend: { display: false }, title: { display: true, text: '해당 기간에 데이터가 없습니다', color: '#636e72' } } }
@@ -2727,11 +2776,11 @@ async function loadAdminData() {
     });
   }
 
-  // 프로그램별 통계
+// 프로그램별 통계
   function renderAdminProgTable(stats) {
     if (!stats) return;
     var table = document.getElementById('admin-prog-table');
-    var html = '<tr><th>프로그램</th><th>수업일</th><th>출석</th><th>결석</th><th>지각</th><th>조퇴</th><th>출석률</th></tr>';
+    var html = '<tr><th>프로그램</th><th>출결 입력일</th><th>출석</th><th>결석</th><th>지각</th><th>조퇴</th><th>출석률</th></tr>';
     var progKeys = Object.keys(stats.progStats).sort();
     if (progKeys.length === 0) {
       html += '<tr><td colspan="7" style="padding:20px; color:var(--text-sub);">해당 기간에 데이터가 없습니다.</td></tr>';
@@ -2741,11 +2790,106 @@ async function loadAdminData() {
         var total = d.present + d.absent + d.late + d.leave;
         var rate = total > 0 ? Math.round((d.present / total) * 100) : 0;
         var rateColor = rate >= 90 ? 'var(--green-deep)' : rate >= 80 ? '#e17055' : 'var(--red-deep)';
-        html += '<tr><td style="text-align:left; font-weight:600;">' + escapeHtml(prog) + '</td><td>' + (d.classDays || 0) + '</td><td style="color:var(--green-deep); font-weight:700;">' + d.present + '</td><td style="color:var(--red-deep); font-weight:700;">' + d.absent + '</td><td>' + d.late + '</td><td>' + d.leave + '</td><td style="color:' + rateColor + '; font-weight:700;">' + rate + '%</td></tr>';
+        var target = encodeURIComponent(prog);
+        html += '<tr>' +
+          '<td class="admin-drill" data-kind="program" data-target="' + target + '" data-status="all" style="text-align:left; font-weight:700; color:var(--purple-deep); cursor:pointer;">' + escapeHtml(prog) + '</td>' +
+          '<td>' + (d.classDays || 0) + '</td>' +
+          '<td class="admin-drill" data-kind="program" data-target="' + target + '" data-status="출석" style="color:var(--green-deep); font-weight:700; cursor:pointer;">' + d.present + '</td>' +
+          '<td class="admin-drill" data-kind="program" data-target="' + target + '" data-status="결석" style="color:var(--red-deep); font-weight:700; cursor:pointer;">' + d.absent + '</td>' +
+          '<td class="admin-drill" data-kind="program" data-target="' + target + '" data-status="지각" style="cursor:pointer;">' + d.late + '</td>' +
+          '<td class="admin-drill" data-kind="program" data-target="' + target + '" data-status="조퇴" style="cursor:pointer;">' + d.leave + '</td>' +
+          '<td style="color:' + rateColor + '; font-weight:700;">' + rate + '%</td>' +
+        '</tr>';
       });
     }
     table.innerHTML = html;
+    attachAdminDrillEvents(table);
   }
+
+  function attachAdminDrillEvents(root) {
+    root.querySelectorAll('.admin-drill').forEach(function(el) {
+      el.onclick = function() {
+        openAdminDetail(
+          el.getAttribute('data-kind'),
+          decodeURIComponent(el.getAttribute('data-target')),
+          el.getAttribute('data-status')
+        );
+      };
+    });
+  }
+
+  function getAdminDetailRecords(kind, target, status) {
+    var records = (adminMultiData && adminMultiData.records) ? adminMultiData.records.slice() : [];
+    return records.filter(function(r) {
+      if (kind === 'status') {
+        if (status && status !== 'all' && r.status !== status) return false;
+        return true;
+      }
+      if (kind === 'program' && r.prog !== target) return false;
+      if (kind === 'student') {
+        var studentKey = r.grade + '-' + r.classNum + ' ' + r.name + '|' + r.prog;
+        if (studentKey !== target) return false;
+      }
+      if (status && status !== 'all' && r.status !== status) return false;
+      return true;
+    });
+  }
+
+  function openAdminDetail(kind, target, status) {
+    var records = getAdminDetailRecords(kind, target, status);
+    var title = (kind === 'program' ? '프로그램 상세: ' : '학생 상세: ') + target;
+    if (status && status !== 'all') title += ' / ' + status;
+
+    var html = '<div class="modal-content" style="max-width:480px;">';
+    html += '<div class="modal-title">' + escapeHtml(title) + '</div>';
+
+    if (records.length === 0) {
+      html += '<div style="padding:20px; color:var(--text-sub); text-align:center;">상세 기록이 없습니다.</div>';
+    } else {
+      records.forEach(function(r) {
+        var emj = r.status === '출석' ? '🟢' : r.status === '지각' ? '🟡' : r.status === '조퇴' ? '🟠' : r.status === '휴강' ? '⚪' : '🔴';
+        var keyStr = JSON.stringify(r.recordKey).replace(/"/g, '&quot;');
+        html += '<div class="record-card">' +
+          '<div class="record-info">' +
+            '<strong>' + escapeHtml(r.date) + ' ' + escapeHtml(r.prog) + ' (' + escapeHtml(r.period) + ')</strong>' +
+            escapeHtml(r.grade) + '-' + escapeHtml(r.classNum) + ' ' + escapeHtml(r.name) + '<br>' +
+            emj + ' ' + escapeHtml(r.status) + (r.reason ? ' <span style="color:var(--text-sub);">(' + escapeHtml(r.reason) + ')</span>' : '') +
+          '</div>' +
+          '<button class="btn-edit" data-edit-key="' + keyStr + '" data-edit-name="' + escapeHtml(r.name) + '" data-edit-status="' + escapeHtml(r.status) + '" data-edit-reason="' + escapeHtml(r.reason || '') + '">수정</button>' +
+        '</div>';
+      });
+    }
+
+    html += '<button class="btn-action gray" onclick="closeAdminDetail()">닫기</button>';
+    html += '</div>';
+
+    var overlay = document.getElementById('admin-detail-modal');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'admin-detail-modal';
+      overlay.className = 'modal-overlay';
+      overlay.onclick = function(e) { if (e.target === overlay) closeAdminDetail(); };
+      document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = html;
+    overlay.style.display = 'flex';
+    overlay.querySelectorAll('[data-edit-key]').forEach(function(btn) {
+      btn.onclick = function() {
+        var key = JSON.parse(btn.getAttribute('data-edit-key').replace(/&quot;/g, '"'));
+        closeAdminDetail();
+        openAdminModal(key, btn.getAttribute('data-edit-name'), btn.getAttribute('data-edit-status'), btn.getAttribute('data-edit-reason'));
+      };
+    });
+  }
+
+  function closeAdminDetail() {
+    var overlay = document.getElementById('admin-detail-modal');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  // 학생별 통계
+
+  // 학생별 통계
 
   // 학생별 통계
   function renderAdminStudentTable() {
@@ -2785,7 +2929,17 @@ async function loadAdminData() {
       filtered.forEach(function(s) {
         var rateColor = s.rate >= 90 ? 'var(--green-deep)' : s.rate >= 80 ? '#e17055' : 'var(--red-deep)';
         var statusText = s.rate >= 80 ? '<span style="color:var(--green-deep);">정상</span>' : '<span style="color:var(--red-deep); font-weight:700;">⚠️ 경고</span>';
-        html += '<tr><td>' + escapeHtml(s.grade) + '-' + escapeHtml(s.classNum) + '</td><td style="font-weight:600;">' + escapeHtml(s.name) + '</td><td style="font-size:0.78rem;">' + escapeHtml(s.prog) + '</td><td style="color:var(--green-deep);">' + s.present + '</td><td style="color:var(--red-deep);">' + s.absent + '</td><td style="color:' + rateColor + '; font-weight:700;">' + s.rate + '%</td><td>' + statusText + '</td></tr>';
+        var studentKey = s.grade + '-' + s.classNum + ' ' + s.name + '|' + s.prog;
+        var studentTarget = encodeURIComponent(studentKey);
+        html += '<tr>' +
+          '<td>' + escapeHtml(s.grade) + '-' + escapeHtml(s.classNum) + '</td>' +
+          '<td class="admin-drill" data-kind="student" data-target="' + studentTarget + '" data-status="all" style="font-weight:700; color:var(--purple-deep); cursor:pointer;">' + escapeHtml(s.name) + '</td>' +
+          '<td style="font-size:0.78rem;">' + escapeHtml(s.prog) + '</td>' +
+          '<td class="admin-drill" data-kind="student" data-target="' + studentTarget + '" data-status="출석" style="color:var(--green-deep); cursor:pointer;">' + s.present + '</td>' +
+          '<td class="admin-drill" data-kind="student" data-target="' + studentTarget + '" data-status="결석" style="color:var(--red-deep); cursor:pointer;">' + s.absent + '</td>' +
+          '<td style="color:' + rateColor + '; font-weight:700;">' + s.rate + '%</td>' +
+          '<td>' + statusText + '</td>' +
+        '</tr>';
               });
     }
 
@@ -2803,6 +2957,7 @@ async function loadAdminData() {
     }
 
     table.innerHTML = html;
+    attachAdminDrillEvents(table);
   }
 
   // ==========================================
@@ -3503,11 +3658,7 @@ async function saveActivityOnly() {
   showLoading(true);
 
   var subName = substituteMode ? document.getElementById('substitute-name').value.trim() : '';
-  var allPeriods = [];
-  if (programData[currentProg] && programData[currentProg][currentDay]) {
-    allPeriods = programData[currentProg][currentDay];
-  }
-  var periodsStr = allPeriods.length > 0 ? allPeriods.join(',') : currentPeriod;
+  var periodsStr = currentPeriod;
 
   try {
     const result = await API.saveActivityLog(
@@ -4342,12 +4493,7 @@ async function saveUserPwdChange() {
           showLoading(false);
           return;
         }
-        var allPeriods = [];
-        if (programData[currentProg] && programData[currentProg][item.day]) {
-          allPeriods = programData[currentProg][item.day];
-        }
-        var periodsStr = allPeriods.length > 0 ? allPeriods.join(',') : item.period;
-        await API.saveActivityLog(item.date, currentProg, item.day, periodsStr, actContent, '');
+        await API.saveActivityLog(item.date, currentProg, item.day, item.period, actContent, '');
       }
 
       closeInstMissingModal();
