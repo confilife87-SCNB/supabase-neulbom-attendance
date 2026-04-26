@@ -971,38 +971,144 @@ const API = {
     return data.length > 0 ? data[0].instructor_name : '';
   },
 
-  async _updateSubmission(date, program, period, day, attendStatus, activityStatus, instructor) {
-    const today = new Date().toISOString().slice(0, 10);
-    const isLate = date < today;
+async _updateSubmission(date, program, period, day, attendStatus, activityStatus, instructor) {
+  const clean = function(value) {
+    return String(value || '').trim();
+  };
 
-    let params = `?date=eq.${date}&program=eq.${encodeURIComponent(program)}`;
-    if (period) params += `&period=eq.${encodeURIComponent(period)}`;
+  const targetDate = clean(date);
+  const targetProgram = clean(program);
+  const targetPeriod = clean(period);
+  const targetDay = clean(day);
+  const targetInstructor = clean(instructor);
 
-    const existing = await SUPABASE.select('submissions', params);
+  if (!targetDate || !targetProgram || !targetPeriod) {
+    throw new Error('제출현황 업데이트 실패: 날짜, 프로그램, 교시가 필요합니다.');
+  }
 
-    if (existing.length > 0) {
-      const updateData = {};
-      if (attendStatus) updateData.attend_status = attendStatus;
-      if (activityStatus) updateData.activity_status = activityStatus;
-      if (isLate) {
-        updateData.late_submit = '✅ 소급입력';
-        updateData.late_submit_time = new Date().toISOString().slice(0, 16).replace('T', ' ');
-      }
-      await SUPABASE.update('submissions', updateData, params);
-    } else {
-      const month = `${new Date(date).getMonth() + 1}월`;
-      await SUPABASE.insert('submissions', [{
-        date, day: day || '', period: period || '', program,
-        instructor: instructor || '',
-        attend_status: attendStatus || '❌ 미제출',
-        activity_status: activityStatus || '❌ 미제출',
-        submit_time: new Date().toTimeString().slice(0, 8),
-        month,
-        late_submit: isLate ? '✅ 소급입력' : '',
-        late_submit_time: isLate ? new Date().toISOString().slice(0, 16).replace('T', ' ') : ''
-      }]);
+  const today = new Date().toISOString().slice(0, 10);
+  const isLate = targetDate < today;
+  const month = `${new Date(targetDate + 'T00:00:00').getMonth() + 1}월`;
+  const nowTime = new Date().toTimeString().slice(0, 8);
+  const lateTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
+
+  const params =
+    `?date=eq.${targetDate}` +
+    `&program=eq.${encodeURIComponent(targetProgram)}` +
+    `&period=eq.${encodeURIComponent(targetPeriod)}`;
+
+  const existing = await SUPABASE.select('submissions', params + '&select=*');
+
+  if (existing && existing.length > 0) {
+    const keep = existing[0];
+
+    const updateData = {
+      day: targetDay || keep.day || '',
+      period: targetPeriod,
+      program: targetProgram,
+      month: month,
+      submit_time: nowTime
+    };
+
+    if (targetInstructor) {
+      updateData.instructor = targetInstructor;
     }
-  },
+
+    if (attendStatus) {
+      updateData.attend_status = attendStatus;
+    }
+
+    if (activityStatus) {
+      updateData.activity_status = activityStatus;
+    }
+
+    if (isLate) {
+      updateData.late_submit = '✅ 소급입력';
+      updateData.late_submit_time = lateTime;
+    }
+
+    await SUPABASE.update(
+      'submissions',
+      updateData,
+      `?id=eq.${keep.id}`
+    );
+
+    // 혹시 예전에 생긴 중복 행이 있으면 첫 번째만 남기고 삭제
+    if (existing.length > 1) {
+      const deleteIds = existing.slice(1).map(function(row) {
+        return row.id;
+      }).filter(Boolean);
+
+      if (deleteIds.length > 0) {
+        await SUPABASE.delete(
+          'submissions',
+          `?id=in.(${deleteIds.join(',')})`
+        );
+      }
+    }
+
+    return true;
+  }
+
+  const insertRow = {
+    date: targetDate,
+    day: targetDay,
+    period: targetPeriod,
+    program: targetProgram,
+    instructor: targetInstructor,
+    attend_status: attendStatus || '❌ 미제출',
+    activity_status: activityStatus || '❌ 미제출',
+    submit_time: nowTime,
+    month: month,
+    late_submit: isLate ? '✅ 소급입력' : '',
+    late_submit_time: isLate ? lateTime : ''
+  };
+
+  try {
+    await SUPABASE.insert('submissions', [insertRow]);
+    return true;
+  } catch (err) {
+    // unique index 때문에 동시에 insert가 막힌 경우, 다시 조회 후 update
+    const retry = await SUPABASE.select('submissions', params + '&select=*');
+
+    if (retry && retry.length > 0) {
+      const retryUpdate = {
+        day: targetDay || retry[0].day || '',
+        period: targetPeriod,
+        program: targetProgram,
+        month: month,
+        submit_time: nowTime
+      };
+
+      if (targetInstructor) {
+        retryUpdate.instructor = targetInstructor;
+      }
+
+      if (attendStatus) {
+        retryUpdate.attend_status = attendStatus;
+      }
+
+      if (activityStatus) {
+        retryUpdate.activity_status = activityStatus;
+      }
+
+      if (isLate) {
+        retryUpdate.late_submit = '✅ 소급입력';
+        retryUpdate.late_submit_time = lateTime;
+      }
+
+      await SUPABASE.update(
+        'submissions',
+        retryUpdate,
+        `?id=eq.${retry[0].id}`
+      );
+
+      return true;
+    }
+
+    throw err;
+  }
+},
 
   async _buildSubmitData(submissions, dateRange) {
     function cleanSt(val) {
