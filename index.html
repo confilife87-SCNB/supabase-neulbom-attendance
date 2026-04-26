@@ -3024,8 +3024,8 @@ async function saveAdminEdit() {
     const result = await API.updateAdminRecord(activeAdminRecordKey, newStatus, newReason);
     closeAdminModal();
     if (result) {
-      loadAdminData();
-      showToast("✅ DB 수정 완료!");
+      await loadAdminData();
+      showToast("✅ 수정 완료! 최신 통계로 새로고침했습니다.");
     } else {
       showToast("❌ 해당 기록을 찾을 수 없습니다.");
     }
@@ -3337,10 +3337,13 @@ async function loadDocData() {
       if (!isConfirmed) {
         html += '    <button class="btn-action gray" ' +
                 '      onclick="finalizeDoc(\'' + escapeHtml(docInfo.month) + '\', \'' +
-                escapeHtml(docInfo.docType) + '\')">' +
+                escapeHtml(docInfo.docType) + '\', false)">' +
                 '      🔒 월 마감</button>';
       } else {
-        html += '    <button class="btn-action gray" disabled>🔒 마감됨</button>';
+        html += '    <button class="btn-action gray" ' +
+                '      onclick="finalizeDoc(\'' + escapeHtml(docInfo.month) + '\', \'' +
+                escapeHtml(docInfo.docType) + '\', true)">' +
+                '      🔓 마감 해지</button>';
       }
     }
 
@@ -3374,11 +3377,17 @@ async function createOrUpdateDoc() {
   }
 }
 
-async function finalizeDoc(month, docType) {
-  if (!confirm('🚨 ' + month + ' ' + docType + ' 월 마감\n\n1. 최신 데이터로 최종 갱신됩니다.\n2. PDF 백업이 자동 생성됩니다.\n3. 관리자 외 수정 불가.\n\n진행하시겠습니까?')) return;
+async function finalizeDoc(month, docType, isUnfinalize) {
+  var title = isUnfinalize ? '마감 해지' : '월 마감';
+  var icon = isUnfinalize ? '🔓' : '🔒';
+  var message = isUnfinalize
+    ? icon + ' ' + month + ' ' + docType + ' 마감 해지\n\n마감 해지 후에는 해당 월 자료를 다시 수정할 수 있습니다.\n\n진행하시겠습니까?'
+    : icon + ' ' + month + ' ' + docType + ' 월 마감\n\n1. 최신 데이터로 최종 갱신됩니다.\n2. PDF 백업이 자동 생성됩니다.\n3. 마감 후에는 수정 전 마감 해지가 필요합니다.\n\n진행하시겠습니까?';
+
+  if (!confirm(message)) return;
 
   showLoading(true);
-  document.querySelector('#loading .load-text').innerText = '🔒 월 마감 처리 중...';
+  document.querySelector('#loading .load-text').innerText = icon + ' ' + title + ' 처리 중...';
 
   try {
     const result = await API.finalizeMonth(month, docType);
