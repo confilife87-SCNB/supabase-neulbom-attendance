@@ -41,7 +41,7 @@ const SUPABASE = {
         'apikey': key,
         'Authorization': authHeader,
         'Content-Type': 'application/json',
-        'Prefer': method === 'POST' ? 'return=representation' : ''
+        'Prefer': (method === 'POST' || method === 'PATCH' || method === 'DELETE') ? 'return=representation' : ''
       },
       body: body ? JSON.stringify(body) : null
     });
