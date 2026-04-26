@@ -270,24 +270,24 @@ const API = {
       await SUPABASE.insert('activity_logs', [rowData]);
     }
 
-// 제출현황 업데이트
-// 활동일지는 출결과 같은 date + program + period 행에 반영되어야 합니다.
-// 기존처럼 period/day를 null로 넘기면 day/period가 빈 submissions 행이 새로 생겨
-// 미제출 현황이 잘못 계산됩니다.
-for (const p of periodList) {
-  const targetPeriod = p.trim();
-  if (!targetPeriod) continue;
+    // 제출현황 업데이트
+    // 활동일지는 출결과 같은 date + program + period 행에 반영되어야 합니다.
+    // 기존처럼 period/day를 null로 넘기면 day/period가 빈 submissions 행이 새로 생겨
+    // 미제출 현황이 잘못 계산됩니다.
+    for (const p of periodList) {
+      const targetPeriod = p.trim();
+      if (!targetPeriod) continue;
 
-  await this._updateSubmission(
-    selectedDate,
-    progName,
-    targetPeriod,
-    dayOfWeek,
-    null,
-    '✅ 제출 완료',
-    recorder
-  );
-}
+      await this._updateSubmission(
+        selectedDate,
+        progName,
+        targetPeriod,
+        dayOfWeek,
+        null,
+        '✅ 제출 완료',
+        recorder
+      );
+    }
 
     return { success: true };
   },
@@ -446,7 +446,16 @@ for (const p of periodList) {
       canceled: dailyData.filter(r => r.status === '휴강').length,
       progStats,
       records: dailyData.map(r => ({
-        recordKey: { date: r.date, prog: r.program, period: r.period, grade: String(r.grade), classNum: String(r.class_num), name: r.name },
+        _id: r.id,
+        recordKey: {
+          id: r.id,
+          date: r.date,
+          prog: r.program,
+          period: r.period,
+          grade: String(r.grade),
+          classNum: String(r.class_num),
+          name: r.name
+        },
         date: r.date, prog: r.program, period: r.period,
         grade: r.grade, classNum: r.class_num, name: r.name,
         status: r.status, reason: r.reason || '', recorder: r.recorder || ''
@@ -509,7 +518,16 @@ for (const p of periodList) {
       `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`
     );
     const records = data.map(r => ({
-      recordKey: { date: r.date, prog: r.program, period: r.period, grade: String(r.grade), classNum: String(r.class_num), name: r.name },
+      _id: r.id,
+      recordKey: {
+        id: r.id,
+        date: r.date,
+        prog: r.program,
+        period: r.period,
+        grade: String(r.grade),
+        classNum: String(r.class_num),
+        name: r.name
+      },
       date: r.date, prog: r.program, period: r.period,
       grade: r.grade, classNum: r.class_num, name: r.name,
       status: r.status, reason: r.reason || '', recorder: r.recorder || ''
@@ -518,11 +536,17 @@ for (const p of periodList) {
   },
 
   async updateAdminRecord(recordKey, newStatus, newReason) {
-    await SUPABASE.update('attendance',
+    if (!recordKey || !recordKey.id) {
+      throw new Error('수정 대상 id가 없습니다. 새로고침 후 다시 시도해주세요.');
+    }
+
+    const updated = await SUPABASE.update(
+      'attendance',
       { status: newStatus, reason: newReason },
-      `?date=eq.${recordKey.date}&program=eq.${encodeURIComponent(recordKey.prog)}&period=eq.${encodeURIComponent(recordKey.period)}&grade=eq.${recordKey.grade}&class_num=eq.${recordKey.classNum}&name=eq.${encodeURIComponent(recordKey.name)}`
+      `?id=eq.${recordKey.id}`
     );
-    return true;
+
+    return Array.isArray(updated) && updated.length > 0;
   },
 
   async getSubmissionStatus(targetDate, periodType) {
@@ -535,57 +559,113 @@ for (const p of periodList) {
 
   async generateAbsentMessages(targetDate, periodType) {
     const dateRange = this._getDateRange(periodType, targetDate);
-    const data = await SUPABASE.select('attendance',
-      `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}&status=eq.결석`
+
+    const allRecords = await SUPABASE.select('attendance',
+      `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}&status=neq.휴강`
     );
 
-    const absentByStudent = {};
-    data.forEach(r => {
-      const key = `${r.grade}_${r.class_num}_${r.name}`;
-      if (!absentByStudent[key]) {
-        absentByStudent[key] = { grade: r.grade, classNum: r.class_num, name: r.name, absences: [], totalAbsent: 0, rate: 100 };
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    const statsByStudentProgram = {};
+
+    allRecords.forEach(r => {
+      const key = `${r.grade}_${r.class_num}_${r.name}_${r.program}`;
+      if (!statsByStudentProgram[key]) {
+        statsByStudentProgram[key] = {
+          grade: r.grade,
+          classNum: r.class_num,
+          name: r.name,
+          prog: r.program,
+          present: 0,
+          absent: 0,
+          late: 0,
+          leave: 0,
+          total: 0,
+          absences: []
+        };
       }
-      const dateObj = new Date(r.date + 'T00:00:00');
-      const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
-      absentByStudent[key].absences.push({
-        date: r.date, day: dayNames[dateObj.getDay()],
-        dateDisplay: `${parseInt(r.date.split('-')[1])}/${parseInt(r.date.split('-')[2])}(${dayNames[dateObj.getDay()]})`,
-        prog: r.program, period: r.period, reason: r.reason || '사유 미등록'
-      });
+
+      const stat = statsByStudentProgram[key];
+      stat.total++;
+
+      if (r.status === '출석') stat.present++;
+      else if (r.status === '결석') {
+        stat.absent++;
+        const dateObj = new Date(r.date + 'T00:00:00');
+        stat.absences.push({
+          date: r.date,
+          day: dayNames[dateObj.getDay()],
+          dateDisplay: `${parseInt(r.date.split('-')[1])}/${parseInt(r.date.split('-')[2])}(${dayNames[dateObj.getDay()]})`,
+          prog: r.program,
+          period: r.period,
+          reason: r.reason || '사유 미등록'
+        });
+      }
+      else if (r.status === '지각') stat.late++;
+      else if (r.status === '조퇴') stat.leave++;
     });
+
+    function getAbsenceGuide(absentCount) {
+      if (absentCount >= 5) return '지속적인 결석이 누적되고 있어 보호자 상담 및 출결 관리가 필요합니다.';
+      if (absentCount === 4) return '결석이 4회 누적되었습니다. 반복 결석 원인 확인과 상담을 권장드립니다.';
+      if (absentCount === 3) return '결석이 3회 누적되었습니다. 이후 출결에 각별한 관심 부탁드립니다.';
+      if (absentCount === 2) return '결석이 반복되고 있습니다. 다음 수업 참여 여부를 확인해주세요.';
+      return '결석 사실을 안내드립니다. 다음 수업 참여 여부를 확인해주세요.';
+    }
 
     const isDaily = !periodType || periodType === 'daily';
     const messages = [];
+    const absentStats = Object.values(statsByStudentProgram)
+      .filter(s => s.absent > 0)
+      .sort((a, b) => {
+        if (a.grade !== b.grade) return a.grade - b.grade;
+        if (a.classNum !== b.classNum) return a.classNum - b.classNum;
+        return String(a.name).localeCompare(String(b.name), 'ko-KR');
+      });
 
-    for (const key in absentByStudent) {
-      const s = absentByStudent[key];
+    absentStats.forEach(s => {
+      const rate = s.total > 0 ? Math.round((s.present / s.total) * 100) : 0;
+      const guide = getAbsenceGuide(s.absent);
+
       if (isDaily) {
         s.absences.forEach(a => {
           let msg = '[순창초 방과후학교 안내]\n학부모님 안녕하세요.\n';
           msg += `${s.grade}학년 ${s.classNum}반 ${s.name} 학생이 [${a.prog}] 수업(${a.day}요일 ${a.period})에 결석하였습니다.\n`;
-          msg += `• 사유: ${a.reason}\n• 누적 결석: ${s.totalAbsent}회\n• 현재 출석률: ${s.rate}%\n`;
-          if (s.totalAbsent >= 3) msg += '⚠️ 결석이 3회 이상입니다.\n';
+          msg += `• 사유: ${a.reason}\n`;
+          msg += `• 누적 결석: ${s.absent}회\n`;
+          msg += `• 현재 출석률: ${rate}%\n`;
+          msg += `• 안내: ${guide}\n`;
           msg += '\n문의: 순창초 늘봄지원실';
           messages.push({ name: `${s.grade}-${s.classNum} ${s.name}`, prog: a.prog, message: msg });
         });
       } else {
         let msg = '[순창초 방과후학교 안내]\n학부모님 안녕하세요.\n';
         s.absences.forEach(a => { msg += `• ${a.dateDisplay} [${a.prog}] ${a.period} - ${a.reason}\n`; });
-        msg += `\n• 결석: ${s.absences.length}회\n• 출석률: ${s.rate}%\n\n문의: 순창초 늘봄지원실`;
-        messages.push({ name: `${s.grade}-${s.classNum} ${s.name}`, prog: '통합', message: msg });
+        msg += `\n• 결석: ${s.absent}회\n`;
+        msg += `• 출석률: ${rate}%\n`;
+        msg += `• 안내: ${guide}\n`;
+        msg += '\n문의: 순창초 늘봄지원실';
+        messages.push({ name: `${s.grade}-${s.classNum} ${s.name}`, prog: s.prog, message: msg });
       }
-    }
+    });
 
-    const studentCount = Object.keys(absentByStudent).length;
+    const studentCount = new Set(absentStats.map(s => `${s.grade}_${s.classNum}_${s.name}`)).size;
     let summaryMsg = '';
-    if (studentCount > 0) {
+    if (absentStats.length > 0) {
       summaryMsg = `[결석 현황 요약]\n총 ${studentCount}명 결석\n\n`;
-      Object.values(absentByStudent).forEach((s, i) => {
-        summaryMsg += `${i + 1}. ${s.grade}-${s.classNum} ${s.name} | ${s.absences.length}회 | 출석률 ${s.rate}%\n`;
+      absentStats.forEach((s, i) => {
+        const rate = s.total > 0 ? Math.round((s.present / s.total) * 100) : 0;
+        summaryMsg += `${i + 1}. ${s.grade}-${s.classNum} ${s.name} | ${s.prog} | 결석 ${s.absent}회 | 출석률 ${rate}%\n`;
       });
     }
 
-    return { individual: messages, summary: summaryMsg, count: messages.length, studentCount, startDate: dateRange.startDate, endDate: dateRange.endDate };
+    return {
+      individual: messages,
+      summary: summaryMsg,
+      count: messages.length,
+      studentCount,
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate
+    };
   },
 
   // ==========================================
@@ -666,12 +746,35 @@ for (const p of periodList) {
   },
   async finalizeMonth(month, docType) {
     const now = new Date().toLocaleString('ko-KR');
-    await SUPABASE.update(
+    const existing = await SUPABASE.select(
       'doc_history',
-      { status: '확정', updated_at: now },
       `?month=eq.${encodeURIComponent(month)}&doc_type=eq.${encodeURIComponent(docType)}`
     );
-    return { success: true, message: `${month} ${docType} 마감 완료` };
+
+    if (!existing || existing.length === 0) {
+      return { success: false, message: `${month} ${docType} 문서 기록이 없습니다.` };
+    }
+
+    const currentStatus = existing[0].status || '작업중';
+    const nextStatus = currentStatus === '확정' ? '작업중' : '확정';
+
+    const updated = await SUPABASE.update(
+      'doc_history',
+      { status: nextStatus, updated_at: now },
+      `?month=eq.${encodeURIComponent(month)}&doc_type=eq.${encodeURIComponent(docType)}`
+    );
+
+    if (!Array.isArray(updated) || updated.length === 0) {
+      return { success: false, message: '상태 변경 대상 문서를 찾지 못했습니다.' };
+    }
+
+    return {
+      success: true,
+      status: nextStatus,
+      message: nextStatus === '확정'
+        ? `${month} ${docType} 월 마감 완료`
+        : `${month} ${docType} 마감 해지 완료`
+    };
   },
 
   // ==========================================
