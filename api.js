@@ -229,10 +229,18 @@ const API = {
     return { success: true, alerts, summary };
   },
 
-  async saveActivityLog(selectedDate, progName, day, periods, activityContent, substituteInstructor) {
-    const periodList = String(periods).split(',');
-    const firstPeriod = periodList[0].trim();
-    const lastPeriod = periodList[periodList.length - 1].trim();
+async saveActivityLog(selectedDate, progName, day, periods, activityContent, substituteInstructor) {
+    const periodList = String(periods || '')
+      .split(',')
+      .map(p => p.trim())
+      .filter(Boolean);
+
+    if (periodList.length === 0) {
+      throw new Error('활동일지 저장 실패: 교시 정보가 없습니다.');
+    }
+
+    const firstPeriod = periodList[0];
+    const lastPeriod = periodList[periodList.length - 1];
     const PERIOD_TIME = {
       '5교시': { start: '13:10', end: '13:50' },
       '6교시': { start: '14:00', end: '14:40' },
@@ -244,40 +252,37 @@ const API = {
     const instructor = await this._getInstructor(progName);
     const recorder = substituteInstructor ? substituteInstructor : instructor;
     const remark = substituteInstructor ? `${substituteInstructor}(대체)` : '';
-    const month = `${new Date(selectedDate).getMonth() + 1}월`;
+    const month = `${new Date(selectedDate + 'T00:00:00').getMonth() + 1}월`;
     const dateObj = new Date(selectedDate + 'T00:00:00');
     const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
-    const dayOfWeek = dayNames[dateObj.getDay()];
+    const dayOfWeek = day || dayNames[dateObj.getDay()];
     const periodText = periodList.length === 1 ? firstPeriod : `${firstPeriod}-${lastPeriod}`;
 
-    // 기존 기록 확인
-    const existing = await SUPABASE.select('activity_logs',
-      `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}`
-    );
-
     const rowData = {
-      date: selectedDate, day: dayOfWeek, program: progName,
-      instructor: recorder, period: periodText,
-      start_time: startTime, end_time: endTime,
-      content: activityContent, remark, month
+      date: selectedDate,
+      day: dayOfWeek,
+      program: progName,
+      instructor: recorder,
+      period: periodText,
+      start_time: startTime,
+      end_time: endTime,
+      content: activityContent,
+      remark,
+      month
     };
 
+    const existing = await SUPABASE.select(
+      'activity_logs',
+      `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&period=eq.${encodeURIComponent(periodText)}&select=id`
+    );
+
     if (existing.length > 0) {
-      await SUPABASE.update('activity_logs', rowData,
-        `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}`
-      );
+      await SUPABASE.update('activity_logs', rowData, `?id=eq.${existing[0].id}`);
     } else {
       await SUPABASE.insert('activity_logs', [rowData]);
     }
 
-    // 제출현황 업데이트
-    // 활동일지는 출결과 같은 date + program + period 행에 반영되어야 합니다.
-    // 기존처럼 period/day를 null로 넘기면 day/period가 빈 submissions 행이 새로 생겨
-    // 미제출 현황이 잘못 계산됩니다.
-    for (const p of periodList) {
-      const targetPeriod = p.trim();
-      if (!targetPeriod) continue;
-
+    for (const targetPeriod of periodList) {
       await this._updateSubmission(
         selectedDate,
         progName,
@@ -414,19 +419,39 @@ const API = {
   // 🟣 관리자
   // ==========================================
 
-  async getAdminAllData(targetDate, periodType) {
+async getAdminAllData(targetDate, periodType) {
     const dateRange = this._getDateRange(periodType, targetDate);
 
-    const [allAttendance, submissions] = await Promise.all([
-      SUPABASE.select('attendance',
-        `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`
+    const [allAttendance, submit] = await Promise.all([
+      SUPABASE.select(
+        'attendance',
+        `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}&order=date.asc,program.asc,period.asc,grade.asc,class_num.asc,name.asc`
       ),
-      SUPABASE.select('submissions',
-        `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`
-      )
+      this.getSubmissionStatus(targetDate, periodType)
     ]);
 
-    // daily 통계
+    const mapRecord = r => ({
+      _id: r.id,
+      recordKey: {
+        id: r.id,
+        date: r.date,
+        prog: r.program,
+        period: r.period,
+        grade: String(r.grade),
+        classNum: String(r.class_num),
+        name: r.name
+      },
+      date: r.date,
+      prog: r.program,
+      period: r.period,
+      grade: r.grade,
+      classNum: r.class_num,
+      name: r.name,
+      status: r.status,
+      reason: r.reason || '',
+      recorder: r.recorder || ''
+    });
+
     const dailyData = allAttendance.filter(r => r.date === targetDate);
     const progStats = {};
     dailyData.forEach(r => {
@@ -445,24 +470,9 @@ const API = {
       leave: dailyData.filter(r => r.status === '조퇴').length,
       canceled: dailyData.filter(r => r.status === '휴강').length,
       progStats,
-      records: dailyData.map(r => ({
-        _id: r.id,
-        recordKey: {
-          id: r.id,
-          date: r.date,
-          prog: r.program,
-          period: r.period,
-          grade: String(r.grade),
-          classNum: String(r.class_num),
-          name: r.name
-        },
-        date: r.date, prog: r.program, period: r.period,
-        grade: r.grade, classNum: r.class_num, name: r.name,
-        status: r.status, reason: r.reason || '', recorder: r.recorder || ''
-      }))
+      records: dailyData.map(mapRecord)
     };
 
-    // multi 통계
     const filteredRecords = allAttendance.filter(r => r.status !== '휴강');
     const multiProgStats = {};
     const datesByProg = {};
@@ -470,7 +480,10 @@ const API = {
     const totalStats = { present: 0, absent: 0, late: 0, leave: 0, canceled: 0 };
 
     allAttendance.forEach(r => {
-      if (r.status === '휴강') { totalStats.canceled++; return; }
+      if (r.status === '휴강') {
+        totalStats.canceled++;
+        return;
+      }
       if (!multiProgStats[r.program]) multiProgStats[r.program] = { present: 0, absent: 0, late: 0, leave: 0, canceled: 0 };
       if (!datesByProg[r.program]) datesByProg[r.program] = {};
       datesByProg[r.program][r.date] = true;
@@ -487,7 +500,17 @@ const API = {
     filteredRecords.forEach(r => {
       const key = `${r.grade}_${r.class_num}_${r.name}_${r.program}`;
       if (!studentStatsMap[key]) {
-        studentStatsMap[key] = { grade: r.grade, classNum: r.class_num, name: r.name, prog: r.program, present: 0, absent: 0, late: 0, leave: 0, total: 0 };
+        studentStatsMap[key] = {
+          grade: r.grade,
+          classNum: r.class_num,
+          name: r.name,
+          prog: r.program,
+          present: 0,
+          absent: 0,
+          late: 0,
+          leave: 0,
+          total: 0
+        };
       }
       studentStatsMap[key].total++;
       if (r.status === '출석') studentStatsMap[key].present++;
@@ -497,25 +520,31 @@ const API = {
     });
 
     const studentList = Object.values(studentStatsMap).map(s => ({
-      ...s, rate: s.total > 0 ? Math.round((s.present / s.total) * 100) : 0
+      ...s,
+      rate: s.total > 0 ? Math.round((s.present / s.total) * 100) : 0
     })).sort((a, b) => a.rate - b.rate);
 
     const multi = {
-      periodType, startDate: dateRange.startDate, endDate: dateRange.endDate,
-      totalStats, progStats: multiProgStats, studentList,
-      absentStudents: [], sheet3: [], sheet4: []
+      periodType,
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate,
+      totalStats,
+      progStats: multiProgStats,
+      studentList,
+      records: allAttendance.map(mapRecord),
+      absentStudents: [],
+      sheet3: [],
+      sheet4: []
     };
-
-    // 제출현황
-    const submit = await this._buildSubmitData(submissions, dateRange);
 
     return { daily, multi, submit, lateSubmitCount: submit.lateSubmitCount || 0 };
   },
 
-  async getRecordsByPeriod(targetDate, periodType) {
+async getRecordsByPeriod(targetDate, periodType) {
     const dateRange = this._getDateRange(periodType, targetDate);
-    const data = await SUPABASE.select('attendance',
-      `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`
+    const data = await SUPABASE.select(
+      'attendance',
+      `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}&order=date.asc,program.asc,period.asc,grade.asc,class_num.asc,name.asc`
     );
     const records = data.map(r => ({
       _id: r.id,
@@ -528,40 +557,44 @@ const API = {
         classNum: String(r.class_num),
         name: r.name
       },
-      date: r.date, prog: r.program, period: r.period,
-      grade: r.grade, classNum: r.class_num, name: r.name,
-      status: r.status, reason: r.reason || '', recorder: r.recorder || ''
+      date: r.date,
+      prog: r.program,
+      period: r.period,
+      grade: r.grade,
+      classNum: r.class_num,
+      name: r.name,
+      status: r.status,
+      reason: r.reason || '',
+      recorder: r.recorder || ''
     }));
     return { records, startDate: dateRange.startDate, endDate: dateRange.endDate };
   },
 
-  async updateAdminRecord(recordKey, newStatus, newReason) {
+async updateAdminRecord(recordKey, newStatus, newReason) {
     if (!recordKey || !recordKey.id) {
       throw new Error('수정 대상 id가 없습니다. 새로고침 후 다시 시도해주세요.');
     }
 
     const updated = await SUPABASE.update(
       'attendance',
-      { status: newStatus, reason: newReason },
+      { status: newStatus, reason: newReason || '' },
       `?id=eq.${recordKey.id}`
     );
 
     return Array.isArray(updated) && updated.length > 0;
   },
 
-  async getSubmissionStatus(targetDate, periodType) {
+async getSubmissionStatus(targetDate, periodType) {
     const dateRange = this._getDateRange(periodType, targetDate);
-    const submissions = await SUPABASE.select('submissions',
-      `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`
-    );
-    return this._buildSubmitData(submissions, dateRange);
+    return this._buildRealtimeSubmissionData(dateRange);
   },
 
-  async generateAbsentMessages(targetDate, periodType) {
+async generateAbsentMessages(targetDate, periodType) {
     const dateRange = this._getDateRange(periodType, targetDate);
 
-    const allRecords = await SUPABASE.select('attendance',
-      `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}&status=neq.휴강`
+    const allRecords = await SUPABASE.select(
+      'attendance',
+      `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}&status=neq.휴강&order=date.asc,program.asc,period.asc,grade.asc,class_num.asc,name.asc`
     );
 
     const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
@@ -619,7 +652,7 @@ const API = {
       .sort((a, b) => {
         if (a.grade !== b.grade) return a.grade - b.grade;
         if (a.classNum !== b.classNum) return a.classNum - b.classNum;
-        return String(a.name).localeCompare(String(b.name), 'ko-KR');
+        return a.name.localeCompare(b.name, 'ko-KR');
       });
 
     absentStats.forEach(s => {
@@ -630,27 +663,35 @@ const API = {
         s.absences.forEach(a => {
           let msg = '[순창초 방과후학교 안내]\n학부모님 안녕하세요.\n';
           msg += `${s.grade}학년 ${s.classNum}반 ${s.name} 학생이 [${a.prog}] 수업(${a.day}요일 ${a.period})에 결석하였습니다.\n`;
-          msg += `• 사유: ${a.reason}\n`;
-          msg += `• 누적 결석: ${s.absent}회\n`;
-          msg += `• 현재 출석률: ${rate}%\n`;
+          msg += `• 사유: ${a.reason}\n• 누적 결석: ${s.absent}회\n• 현재 출석률: ${rate}%\n`;
           msg += `• 안내: ${guide}\n`;
           msg += '\n문의: 순창초 늘봄지원실';
-          messages.push({ name: `${s.grade}-${s.classNum} ${s.name}`, prog: a.prog, message: msg });
+          messages.push({
+            name: `${s.grade}-${s.classNum} ${s.name}`,
+            prog: a.prog,
+            absentCount: s.absent,
+            rate,
+            message: msg
+          });
         });
       } else {
         let msg = '[순창초 방과후학교 안내]\n학부모님 안녕하세요.\n';
+        msg += `${s.grade}학년 ${s.classNum}반 ${s.name} 학생의 방과후학교 결석 현황을 안내드립니다.\n\n`;
         s.absences.forEach(a => { msg += `• ${a.dateDisplay} [${a.prog}] ${a.period} - ${a.reason}\n`; });
-        msg += `\n• 결석: ${s.absent}회\n`;
-        msg += `• 출석률: ${rate}%\n`;
-        msg += `• 안내: ${guide}\n`;
-        msg += '\n문의: 순창초 늘봄지원실';
-        messages.push({ name: `${s.grade}-${s.classNum} ${s.name}`, prog: s.prog, message: msg });
+        msg += `\n• 결석: ${s.absent}회\n• 출석률: ${rate}%\n• 안내: ${guide}\n\n문의: 순창초 늘봄지원실`;
+        messages.push({
+          name: `${s.grade}-${s.classNum} ${s.name}`,
+          prog: s.prog,
+          absentCount: s.absent,
+          rate,
+          message: msg
+        });
       }
     });
 
-    const studentCount = new Set(absentStats.map(s => `${s.grade}_${s.classNum}_${s.name}`)).size;
+    const studentCount = absentStats.length;
     let summaryMsg = '';
-    if (absentStats.length > 0) {
+    if (studentCount > 0) {
       summaryMsg = `[결석 현황 요약]\n총 ${studentCount}명 결석\n\n`;
       absentStats.forEach((s, i) => {
         const rate = s.total > 0 ? Math.round((s.present / s.total) * 100) : 0;
@@ -658,15 +699,11 @@ const API = {
       });
     }
 
-    return {
-      individual: messages,
-      summary: summaryMsg,
-      count: messages.length,
-      studentCount,
-      startDate: dateRange.startDate,
-      endDate: dateRange.endDate
-    };
+    return { individual: messages, summary: summaryMsg, count: messages.length, studentCount, startDate: dateRange.startDate, endDate: dateRange.endDate };
   },
+
+  // ==========================================
+  // 📄 서류
 
   // ==========================================
   // 📄 서류 (PDF — 추후 구현)
@@ -744,38 +781,6 @@ const API = {
 
     return { success: true, url: '', isUpdate: existing.length > 0 };
   },
-  async finalizeMonth(month, docType) {
-    const now = new Date().toLocaleString('ko-KR');
-    const existing = await SUPABASE.select(
-      'doc_history',
-      `?month=eq.${encodeURIComponent(month)}&doc_type=eq.${encodeURIComponent(docType)}`
-    );
-
-    if (!existing || existing.length === 0) {
-      return { success: false, message: `${month} ${docType} 문서 기록이 없습니다.` };
-    }
-
-    const currentStatus = existing[0].status || '작업중';
-    const nextStatus = currentStatus === '확정' ? '작업중' : '확정';
-
-    const updated = await SUPABASE.update(
-      'doc_history',
-      { status: nextStatus, updated_at: now },
-      `?month=eq.${encodeURIComponent(month)}&doc_type=eq.${encodeURIComponent(docType)}`
-    );
-
-    if (!Array.isArray(updated) || updated.length === 0) {
-      return { success: false, message: '상태 변경 대상 문서를 찾지 못했습니다.' };
-    }
-
-    return {
-      success: true,
-      status: nextStatus,
-      message: nextStatus === '확정'
-        ? `${month} ${docType} 월 마감 완료`
-        : `${month} ${docType} 마감 해지 완료`
-    };
-  },
 
   async setMonthFinalized(month, shouldFinalize) {
     const now = new Date().toLocaleString('ko-KR');
@@ -805,7 +810,6 @@ const API = {
         { status: nextStatus, updated_at: now },
         `?month=eq.${encodeURIComponent(month)}&doc_type=eq.${encodeURIComponent(docType)}`
       );
-
       if (Array.isArray(updated)) updatedRows.push(...updated);
     }
 
@@ -819,10 +823,18 @@ const API = {
     return {
       success: true,
       status: nextStatus,
-      message: shouldFinalize
-        ? `${month} 월 마감 완료`
-        : `${month} 월 마감 해지 완료`
+      message: shouldFinalize ? `${month} 월 마감 완료` : `${month} 월 마감 해지 완료`
     };
+  },
+
+  async finalizeMonth(month, docType) {
+    const now = new Date().toLocaleString('ko-KR');
+    await SUPABASE.update(
+      'doc_history',
+      { status: '확정', updated_at: now },
+      `?month=eq.${encodeURIComponent(month)}&doc_type=eq.${encodeURIComponent(docType)}`
+    );
+    return { success: true, message: `${month} ${docType} 마감 완료` };
   },
 
   // ==========================================
@@ -931,34 +943,32 @@ const API = {
     return true;
   },
 
-  async getInstMissingList(progName, month) {
-    const data = await SUPABASE.select('submissions',
-      `?program=eq.${encodeURIComponent(progName)}&month=eq.${encodeURIComponent(month)}`
-    );
+async getInstMissingList(progName, month) {
+    const dateRange = this._getDateRangeByMonth(month);
+    const result = await this._buildRealtimeSubmissionData(dateRange, progName);
     const today = new Date().toISOString().slice(0, 10);
 
-    function cleanSt(val) {
-      return String(val).replace(/\s/g, '').replace(/[^\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/g, '');
-    }
-
-    return data
-      .filter(item => {
-        if (item.date > today) return false;
-        const attendDone = cleanSt(item.attend_status).includes('제출완료') || cleanSt(item.attend_status).includes('휴강');
-        const actDone = cleanSt(item.activity_status).includes('제출완료') || cleanSt(item.activity_status).includes('휴강');
-        return !(attendDone && actDone);
-      })
+    return (result.notSubmitted || [])
+      .filter(item => item.date <= today)
       .map(item => {
-        const attendDone = cleanSt(item.attend_status).includes('제출완료') || cleanSt(item.attend_status).includes('휴강');
-        const actDone = cleanSt(item.activity_status).includes('제출완료') || cleanSt(item.activity_status).includes('휴강');
+        const attendDone = this._isDoneStatus(item.attendStatus);
+        const activityDone = this._isDoneStatus(item.activityStatus);
         return {
-          date: item.date, day: item.day, period: item.period,
-          prog: item.program, instructor: item.instructor,
-          attendDone, activityDone: actDone
+          date: item.date,
+          day: item.day,
+          period: item.period,
+          prog: item.prog,
+          instructor: item.instructor,
+          attendDone,
+          activityDone
         };
       })
-      .sort((a, b) => a.date.localeCompare(b.date));
+      .filter(item => !(item.attendDone && item.activityDone))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.period.localeCompare(b.period));
   },
+
+  // ==========================================
+  // 🔧 내부 헬퍼 함수
 
   // ==========================================
   // 🔧 내부 헬퍼 함수
@@ -972,143 +982,101 @@ const API = {
   },
 
 async _updateSubmission(date, program, period, day, attendStatus, activityStatus, instructor) {
-  const clean = function(value) {
-    return String(value || '').trim();
-  };
+    const clean = value => String(value || '').trim();
 
-  const targetDate = clean(date);
-  const targetProgram = clean(program);
-  const targetPeriod = clean(period);
-  const targetDay = clean(day);
-  const targetInstructor = clean(instructor);
+    const targetDate = clean(date);
+    const targetProgram = clean(program);
+    const targetPeriod = clean(period);
+    const targetDay = clean(day);
+    const targetInstructor = clean(instructor);
 
-  if (!targetDate || !targetProgram || !targetPeriod) {
-    throw new Error('제출현황 업데이트 실패: 날짜, 프로그램, 교시가 필요합니다.');
-  }
-
-  const today = new Date().toISOString().slice(0, 10);
-  const isLate = targetDate < today;
-  const month = `${new Date(targetDate + 'T00:00:00').getMonth() + 1}월`;
-  const nowTime = new Date().toTimeString().slice(0, 8);
-  const lateTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
-
-  const params =
-    `?date=eq.${targetDate}` +
-    `&program=eq.${encodeURIComponent(targetProgram)}` +
-    `&period=eq.${encodeURIComponent(targetPeriod)}`;
-
-  const existing = await SUPABASE.select('submissions', params + '&select=*');
-
-  if (existing && existing.length > 0) {
-    const keep = existing[0];
-
-    const updateData = {
-      day: targetDay || keep.day || '',
-      period: targetPeriod,
-      program: targetProgram,
-      month: month,
-      submit_time: nowTime
-    };
-
-    if (targetInstructor) {
-      updateData.instructor = targetInstructor;
+    if (!targetDate || !targetProgram || !targetPeriod) {
+      throw new Error('제출현황 업데이트 실패: 날짜, 프로그램, 교시가 필요합니다.');
     }
 
-    if (attendStatus) {
-      updateData.attend_status = attendStatus;
-    }
+    const today = new Date().toISOString().slice(0, 10);
+    const isLate = targetDate < today;
+    const month = `${new Date(targetDate + 'T00:00:00').getMonth() + 1}월`;
+    const nowTime = new Date().toTimeString().slice(0, 8);
+    const lateTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
 
-    if (activityStatus) {
-      updateData.activity_status = activityStatus;
-    }
+    const params =
+      `?date=eq.${targetDate}` +
+      `&program=eq.${encodeURIComponent(targetProgram)}` +
+      `&period=eq.${encodeURIComponent(targetPeriod)}`;
 
-    if (isLate) {
-      updateData.late_submit = '✅ 소급입력';
-      updateData.late_submit_time = lateTime;
-    }
+    const existing = await SUPABASE.select('submissions', params + '&select=*');
 
-    await SUPABASE.update(
-      'submissions',
-      updateData,
-      `?id=eq.${keep.id}`
-    );
-
-    // 혹시 예전에 생긴 중복 행이 있으면 첫 번째만 남기고 삭제
-    if (existing.length > 1) {
-      const deleteIds = existing.slice(1).map(function(row) {
-        return row.id;
-      }).filter(Boolean);
-
-      if (deleteIds.length > 0) {
-        await SUPABASE.delete(
-          'submissions',
-          `?id=in.(${deleteIds.join(',')})`
-        );
-      }
-    }
-
-    return true;
-  }
-
-  const insertRow = {
-    date: targetDate,
-    day: targetDay,
-    period: targetPeriod,
-    program: targetProgram,
-    instructor: targetInstructor,
-    attend_status: attendStatus || '❌ 미제출',
-    activity_status: activityStatus || '❌ 미제출',
-    submit_time: nowTime,
-    month: month,
-    late_submit: isLate ? '✅ 소급입력' : '',
-    late_submit_time: isLate ? lateTime : ''
-  };
-
-  try {
-    await SUPABASE.insert('submissions', [insertRow]);
-    return true;
-  } catch (err) {
-    // unique index 때문에 동시에 insert가 막힌 경우, 다시 조회 후 update
-    const retry = await SUPABASE.select('submissions', params + '&select=*');
-
-    if (retry && retry.length > 0) {
-      const retryUpdate = {
-        day: targetDay || retry[0].day || '',
+    if (existing && existing.length > 0) {
+      const keep = existing[0];
+      const updateData = {
+        day: targetDay || keep.day || '',
         period: targetPeriod,
         program: targetProgram,
-        month: month,
+        month,
         submit_time: nowTime
       };
 
-      if (targetInstructor) {
-        retryUpdate.instructor = targetInstructor;
-      }
-
-      if (attendStatus) {
-        retryUpdate.attend_status = attendStatus;
-      }
-
-      if (activityStatus) {
-        retryUpdate.activity_status = activityStatus;
-      }
-
+      if (targetInstructor) updateData.instructor = targetInstructor;
+      if (attendStatus) updateData.attend_status = attendStatus;
+      if (activityStatus) updateData.activity_status = activityStatus;
       if (isLate) {
-        retryUpdate.late_submit = '✅ 소급입력';
-        retryUpdate.late_submit_time = lateTime;
+        updateData.late_submit = '✅ 소급입력';
+        updateData.late_submit_time = lateTime;
       }
 
-      await SUPABASE.update(
-        'submissions',
-        retryUpdate,
-        `?id=eq.${retry[0].id}`
-      );
+      await SUPABASE.update('submissions', updateData, `?id=eq.${keep.id}`);
+
+      if (existing.length > 1) {
+        const deleteIds = existing.slice(1).map(row => row.id).filter(Boolean);
+        if (deleteIds.length > 0) {
+          await SUPABASE.delete('submissions', `?id=in.(${deleteIds.join(',')})`);
+        }
+      }
 
       return true;
     }
 
-    throw err;
-  }
-},
+    const insertRow = {
+      date: targetDate,
+      day: targetDay,
+      period: targetPeriod,
+      program: targetProgram,
+      instructor: targetInstructor,
+      attend_status: attendStatus || '❌ 미제출',
+      activity_status: activityStatus || '❌ 미제출',
+      submit_time: nowTime,
+      month,
+      late_submit: isLate ? '✅ 소급입력' : '',
+      late_submit_time: isLate ? lateTime : ''
+    };
+
+    try {
+      await SUPABASE.insert('submissions', [insertRow]);
+      return true;
+    } catch (err) {
+      const retry = await SUPABASE.select('submissions', params + '&select=*');
+      if (retry && retry.length > 0) {
+        const retryUpdate = {
+          day: targetDay || retry[0].day || '',
+          period: targetPeriod,
+          program: targetProgram,
+          month,
+          submit_time: nowTime
+        };
+        if (targetInstructor) retryUpdate.instructor = targetInstructor;
+        if (attendStatus) retryUpdate.attend_status = attendStatus;
+        if (activityStatus) retryUpdate.activity_status = activityStatus;
+        if (isLate) {
+          retryUpdate.late_submit = '✅ 소급입력';
+          retryUpdate.late_submit_time = lateTime;
+        }
+        await SUPABASE.update('submissions', retryUpdate, `?id=eq.${retry[0].id}`);
+        return true;
+      }
+      throw err;
+    }
+  },
 
   async _buildSubmitData(submissions, dateRange) {
     function cleanSt(val) {
@@ -1155,6 +1123,219 @@ async _updateSubmission(date, program, period, day, attendStatus, activityStatus
       history: historyRecords,
       lateSubmits, lateSubmitCount: lateSubmits.length,
       startDate: dateRange.startDate, endDate: dateRange.endDate
+    };
+  },
+
+
+  _normalizeDay(day) {
+    return String(day || '').replace('요일', '').trim();
+  },
+
+  _isDoneStatus(status) {
+    const cleaned = String(status || '').replace(/\s/g, '').replace(/[^\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/g, '');
+    return cleaned.includes('제출완료') || cleaned.includes('휴강');
+  },
+
+  _activityMatchesPeriod(logPeriod, targetPeriod) {
+    const log = String(logPeriod || '').trim();
+    const target = String(targetPeriod || '').trim();
+    if (!log || !target) return false;
+    if (log === target) return true;
+    return log.split(/[,/·\s]+/).includes(target) || log.includes(target);
+  },
+
+  _dateList(startDate, endDate) {
+    const dates = [];
+    const cur = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T00:00:00');
+    while (cur <= end) {
+      dates.push(cur.toISOString().slice(0, 10));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return dates;
+  },
+
+  _getDateRangeByMonth(monthText) {
+    const monthNum = parseInt(String(monthText || '').replace(/[^0-9]/g, ''), 10);
+    const today = new Date();
+    const year = today.getFullYear();
+    if (!monthNum || monthNum < 1 || monthNum > 12) {
+      const current = String(today.getMonth() + 1).padStart(2, '0');
+      const last = new Date(year, today.getMonth() + 1, 0).getDate();
+      return { startDate: `${year}-${current}-01`, endDate: `${year}-${current}-${String(last).padStart(2, '0')}` };
+    }
+    const mm = String(monthNum).padStart(2, '0');
+    const lastDay = new Date(year, monthNum, 0).getDate();
+    return { startDate: `${year}-${mm}-01`, endDate: `${year}-${mm}-${String(lastDay).padStart(2, '0')}` };
+  },
+
+  async _safeSelect(table, params) {
+    try {
+      return await SUPABASE.select(table, params);
+    } catch (err) {
+      console.warn(`[${table}] 조회 실패 또는 테이블 없음:`, err.message);
+      return [];
+    }
+  },
+
+  async _getOperationExceptions(dateRange) {
+    const rows = await this._safeSelect(
+      'operation_exceptions',
+      `?start_date=lte.${dateRange.endDate}&end_date=gte.${dateRange.startDate}`
+    );
+    return rows || [];
+  },
+
+  _isExceptionDate(dateStr, exceptions) {
+    return (exceptions || []).some(row => row.start_date <= dateStr && row.end_date >= dateStr);
+  },
+
+  _buildAttendanceMap(records) {
+    const map = {};
+    (records || []).forEach(r => {
+      const key = `${r.date}|${r.program}|${r.period}`;
+      if (!map[key]) map[key] = [];
+      map[key].push(r);
+    });
+    return map;
+  },
+
+  _buildActivityMap(records) {
+    const map = {};
+    (records || []).forEach(r => {
+      const key = `${r.date}|${r.program}`;
+      if (!map[key]) map[key] = [];
+      map[key].push(r);
+    });
+    return map;
+  },
+
+  _buildSubmitMap(records) {
+    const map = {};
+    (records || []).forEach(r => {
+      const key = `${r.date}|${r.program}|${r.period}`;
+      if (!map[key]) map[key] = [];
+      map[key].push(r);
+    });
+    return map;
+  },
+
+  async _buildExpectedLessons(dateRange, progName) {
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    const [students, instructors, exceptions] = await Promise.all([
+      SUPABASE.select('students', '?select=day,period,program'),
+      this._safeSelect('instructors', '?select=program,instructor_name'),
+      this._getOperationExceptions(dateRange)
+    ]);
+
+    const instructorMap = {};
+    (instructors || []).forEach(i => { instructorMap[i.program] = i.instructor_name || ''; });
+
+    const schedule = {};
+    (students || []).forEach(s => {
+      if (!s.program || !s.day || !s.period) return;
+      if (progName && s.program !== progName) return;
+      const day = this._normalizeDay(s.day);
+      const key = `${day}|${s.period}|${s.program}`;
+      if (!schedule[key]) {
+        schedule[key] = { day, period: s.period, program: s.program, instructor: instructorMap[s.program] || '' };
+      }
+    });
+
+    const lessons = [];
+    this._dateList(dateRange.startDate, dateRange.endDate).forEach(date => {
+      const d = new Date(date + 'T00:00:00');
+      const dow = d.getDay();
+      if (dow === 0 || dow === 6) return;
+      if (this._isExceptionDate(date, exceptions)) return;
+      const day = dayNames[dow];
+      Object.values(schedule).forEach(item => {
+        if (item.day === day) {
+          lessons.push({ date, day, period: item.period, program: item.program, instructor: item.instructor });
+        }
+      });
+    });
+
+    lessons.sort((a, b) => a.date.localeCompare(b.date) || a.program.localeCompare(b.program, 'ko-KR') || a.period.localeCompare(b.period));
+    return lessons;
+  },
+
+  async _buildRealtimeSubmissionData(dateRange, progName) {
+    const [expectedLessons, attendance, activityLogs, submissions] = await Promise.all([
+      this._buildExpectedLessons(dateRange, progName),
+      SUPABASE.select('attendance', `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`),
+      SUPABASE.select('activity_logs', `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`),
+      this._safeSelect('submissions', `?date=gte.${dateRange.startDate}&date=lte.${dateRange.endDate}`)
+    ]);
+
+    const attendanceMap = this._buildAttendanceMap(attendance);
+    const activityMap = this._buildActivityMap(activityLogs);
+    const submitMap = this._buildSubmitMap(submissions);
+    const submitted = [];
+    const notSubmitted = [];
+    const lateSubmits = [];
+
+    expectedLessons.forEach(lesson => {
+      const key = `${lesson.date}|${lesson.program}|${lesson.period}`;
+      const attRows = attendanceMap[key] || [];
+      const submitRows = submitMap[key] || [];
+      const submitInfo = submitRows[0] || {};
+      const actRows = (activityMap[`${lesson.date}|${lesson.program}`] || [])
+        .filter(log => this._activityMatchesPeriod(log.period, lesson.period));
+
+      const isCanceled = attRows.some(r => r.status === '휴강');
+      const attendDone = isCanceled || attRows.length > 0 || this._isDoneStatus(submitInfo.attend_status);
+      const activityDone = isCanceled || actRows.length > 0 || this._isDoneStatus(submitInfo.activity_status);
+
+      const obj = {
+        date: lesson.date,
+        day: lesson.day,
+        period: lesson.period,
+        prog: lesson.program,
+        instructor: lesson.instructor || submitInfo.instructor || '',
+        attendStatus: isCanceled ? '🚫 휴강' : (attendDone ? '✅ 제출 완료' : '❌ 미제출'),
+        activityStatus: isCanceled ? '🚫 휴강' : (activityDone ? '✅ 제출 완료' : '❌ 미제출'),
+        submitTime: submitInfo.submit_time || '',
+        lateSubmit: submitInfo.late_submit || '',
+        lateSubmitTime: submitInfo.late_submit_time || ''
+      };
+
+      if (attendDone && activityDone) submitted.push(obj);
+      else notSubmitted.push(obj);
+    });
+
+    (submissions || []).forEach(item => {
+      if (item.late_submit === '✅ 소급입력') {
+        lateSubmits.push({
+          date: item.date,
+          day: item.day,
+          period: item.period,
+          prog: item.program,
+          instructor: item.instructor || '',
+          attendStatus: item.attend_status,
+          activityStatus: item.activity_status,
+          submitTime: item.submit_time || '',
+          lateSubmit: item.late_submit || '',
+          lateSubmitTime: item.late_submit_time || ''
+        });
+      }
+    });
+
+    submitted.sort((a, b) => a.date.localeCompare(b.date) || a.period.localeCompare(b.period) || a.prog.localeCompare(b.prog, 'ko-KR'));
+    notSubmitted.sort((a, b) => a.date.localeCompare(b.date) || a.period.localeCompare(b.period) || a.prog.localeCompare(b.prog, 'ko-KR'));
+    lateSubmits.sort((a, b) => b.date.localeCompare(a.date));
+
+    return {
+      total: submitted.length + notSubmitted.length,
+      submittedCount: submitted.length,
+      notSubmittedCount: notSubmitted.length,
+      submitted,
+      notSubmitted,
+      history: [],
+      lateSubmits,
+      lateSubmitCount: lateSubmits.length,
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate
     };
   },
 
