@@ -52,6 +52,53 @@ const API = {
     return data.map(d => ({ role: d.role, pwd: d.password }));
   },
 
+  async getOperationExceptionList(startDate, endDate) {
+    const start = startDate || '2026-01-01';
+    const end = endDate || '2026-12-31';
+    return await this._safeSelect(
+      'operation_exceptions',
+      `?start_date=lte.${end}&end_date=gte.${start}&order=start_date.asc,end_date.asc,type.asc`
+    );
+  },
+
+  async addOperationException(startDate, endDate, type, reason) {
+    const clean = function(value) { return String(value || '').trim(); };
+    const s = clean(startDate);
+    const e = clean(endDate || startDate);
+    const t = clean(type) || '기타';
+    const r = clean(reason);
+
+    if (!s || !e) {
+      throw new Error('시작일과 종료일을 입력해주세요.');
+    }
+
+    if (e < s) {
+      throw new Error('종료일은 시작일보다 빠를 수 없습니다.');
+    }
+
+    const inserted = await SUPABASE.insert('operation_exceptions', [{
+      start_date: s,
+      end_date: e,
+      type: t,
+      reason: r
+    }]);
+
+    return Array.isArray(inserted) ? inserted[0] : true;
+  },
+
+  async deleteOperationException(id) {
+    if (!id) {
+      throw new Error('삭제할 운영 제외일 id가 없습니다.');
+    }
+
+    const deleted = await SUPABASE.delete(
+      'operation_exceptions',
+      `?id=eq.${id}`
+    );
+
+    return Array.isArray(deleted) && deleted.length > 0;
+  },
+
   // ==========================================
   // 🔄 초기 로딩
   // ==========================================
