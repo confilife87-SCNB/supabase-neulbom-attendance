@@ -1,4 +1,5 @@
-const CACHE_NAME = 'neulbom-supabase-v2';
+const CACHE_NAME = 'neulbom-supabase-v3';
+
 
 const STATIC_ASSETS = [
   './',
