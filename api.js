@@ -175,7 +175,7 @@ const API = {
       SUPABASE.select('pre_memos', `?date=eq.${selectedDate}`),
       SUPABASE.select('contacts', '?select=grade,class_num,name,phone'),
       SUPABASE.select('activity_logs',
-        `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}`
+        `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&order=created_at.desc`
       )
     ]);
 
@@ -373,13 +373,21 @@ const API = {
     };
 
     // ⭐ B4 수정: id 기반으로 정확한 UPDATE
-    // ⭐ periodText 기준으로 정확한 row 조회 (엉뚱한 row 수정 방지)
+    // ⭐ 중복 방지: 기존 row 전체 삭제 후 새로 INSERT
+    // (UNIQUE 제약이 없는 경우 중복 row 누적 방지)
     const existing = await SUPABASE.select('activity_logs',
       `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&period=eq.${encodeURIComponent(periodText)}&select=id`
     );
 
     if (existing.length > 0) {
+      // 가장 최신 row 하나만 UPDATE, 나머지 중복 삭제
       await SUPABASE.update('activity_logs', rowData, `?id=eq.${existing[0].id}`);
+      if (existing.length > 1) {
+        const deleteIds = existing.slice(1).map(r => r.id).filter(Boolean);
+        if (deleteIds.length > 0) {
+          await SUPABASE.delete('activity_logs', `?id=in.(${deleteIds.join(',')})`);
+        }
+      }
     } else {
       await SUPABASE.insert('activity_logs', [rowData]);
     }
