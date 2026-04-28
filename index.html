@@ -2579,8 +2579,21 @@ async function instLogin() {
 
     // ⭐ 대체강사 정보 자동 복원
     var savedRecorder = result.activityRecorder || '';
-    if (savedRecorder.includes('(대체)') || savedRecorder !== '' && savedRecorder !== (await API._getInstructor(prog))) {
-      // 대체강사로 저장된 경우 체크박스 자동 체크
+    // ⭐ 대체강사 정보 자동 복원 — '(대체)' 포함 여부로만 판단
+    var savedRecorder = result.activityRecorder || '';
+    if (savedRecorder && savedRecorder.includes('(대체)')) {
+      var subCheck = document.getElementById('substitute-check');
+      var subInput = document.getElementById('substitute-name');
+      var subArea  = document.getElementById('substitute-area');
+      if (subCheck && subInput && subArea) {
+        var cleanName = savedRecorder.replace('(대체)', '').trim();
+        subCheck.checked = true;
+        substituteMode   = true;
+        subInput.value   = cleanName;
+        subArea.classList.add('show');
+      }
+    }
+    // 대체강사로 저장된 경우 체크박스 자동 체크
       var subCheck = document.getElementById('substitute-check');
       var subInput = document.getElementById('substitute-name');
       var subArea  = document.getElementById('substitute-area');
@@ -4968,12 +4981,12 @@ async function generateAttendancePDF(month, targetProg) {
 
     programs.forEach(progName => {
       const progStudents = students.filter(s => s.program === progName);
-      const seen = {};
+      const seenStudents = {};           // ← 이름 변경
       const studentList = [];
       progStudents.forEach(s => {
         const key = `${s.grade}_${s.class_num}_${s.name}`;
-        if (!seen[key]) {
-          seen[key] = true;
+        if (!seenStudents[key]) {
+          seenStudents[key] = true;
           studentList.push({
             key, grade: s.grade, classNum: s.class_num, name: s.name,
             permNote: s.perm_note || '',
@@ -4982,16 +4995,19 @@ async function generateAttendancePDF(month, targetProg) {
         }
       });
 
-      studentList.sort((a, b) => {
-        if (a.grade !== b.grade) return a.grade - b.grade;
-        if (a.classNum !== b.classNum) return a.classNum - b.classNum;
-        return a.name.localeCompare(b.name, 'ko-KR');
-      });
-
       // ⭐ A안: 날짜+교시 조합으로 컬럼 구성
-      // attendance 테이블에서 실제 수업된 날짜+교시 조합 추출
       const classDatePeriods = [];
-      const seen = {};
+      const seenDatePeriods  = {};           // ← 이름 변경
+      attendanceRaw
+        .filter(r => r.program === progName)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.period.localeCompare(b.period))
+        .forEach(r => {
+          const k = `${r.date}|${r.period}`;
+          if (!seenDatePeriods[k]) {
+            seenDatePeriods[k] = true;
+            classDatePeriods.push({ date: r.date, period: r.period });
+          }
+        });
       attendanceRaw
         .filter(r => r.program === progName)
         .sort((a, b) => a.date.localeCompare(b.date) || a.period.localeCompare(b.period))
@@ -5016,8 +5032,8 @@ async function generateAttendancePDF(month, targetProg) {
       const remarkFs   = 6;
       const headerRowH = '8.2mm';
 
-      const periodStart = classDates.length > 0 ? classDates[0] : '';
-      const periodEnd = classDates.length > 0 ? classDates[classDates.length - 1] : '';
+      // periodStart/periodEnd는 페이지 루프 안에서 pageCols로 계산하므로 삭제
+      // (아래 페이지 루프에서 이미 처리됨)
 
       const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
 
