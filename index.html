@@ -2468,7 +2468,13 @@ async function checkSubmitStatus() {
   var prog = document.getElementById('prog-select').value;
   var period = document.getElementById('period-select').value;
   var dateVal = document.getElementById('attendance-date').value;
+  var dayStr = document.getElementById('day-select').value;
   var badge = document.getElementById('submit-status-badge');
+
+  // ⭐ 대체강사 입력란 초기화
+  var subCheck = document.getElementById('substitute-check');
+  var subInput = document.getElementById('substitute-name');
+  var subArea  = document.getElementById('substitute-area');
 
   if (!prog || !period || !dateVal) {
     if (!dateVal) badge.style.display = 'none';
@@ -2484,12 +2490,10 @@ async function checkSubmitStatus() {
   badge.innerText = '🔄 제출 현황 확인 중...';
 
   try {
-    const existing = await API.getExistingAttendance(
-      dateVal, prog,
-      document.getElementById('day-select').value,
-      period
-    );
-    var hasRecord = existing && Object.keys(existing).length > 0;
+    // ⭐ getInstDashboardData를 호출하여 대체강사 정보까지 함께 가져옴
+    const result = await API.getInstDashboardData(prog, dayStr, period, dateVal);
+    var hasRecord = result.existing && Object.keys(result.existing).length > 0;
+
     if (hasRecord) {
       badge.style.background = 'rgba(0,184,148,0.08)';
       badge.style.color = 'var(--green-deep)';
@@ -2501,10 +2505,33 @@ async function checkSubmitStatus() {
       badge.style.borderLeft = '4px solid var(--orange-deep)';
       badge.innerText = '📋 ' + dateVal + ' 해당 날짜의 출결작성이 아직 없습니다.';
     }
+
+    // ⭐ 대체강사 정보 자동 복원 (로그인 화면에서)
+    var savedRecorder = '';
+    if (result.activityRecorder && result.activityRecorder.includes('(대체)')) {
+      savedRecorder = result.activityRecorder.replace('(대체)', '').trim();
+    } else if (result.attendanceRecorder && result.attendanceRecorder.includes('(대체강사)')) {
+      savedRecorder = result.attendanceRecorder.replace('(대체강사)', '').trim();
+    }
+
+    if (savedRecorder) {
+      if (subCheck) subCheck.checked = true;
+      if (subInput) subInput.value = savedRecorder;
+      if (subArea) subArea.classList.add('show');
+      substituteMode = true;
+      console.log('✅ 대체강사 자동 복원:', savedRecorder);
+    } else {
+      if (subCheck) subCheck.checked = false;
+      if (subInput) subInput.value = '';
+      if (subArea) subArea.classList.remove('show');
+      substituteMode = false;
+    }
+
   } catch (err) {
     badge.style.display = 'none';
   }
 }
+
 
 async function instLogin() {
   if (checkLockout()) return;
