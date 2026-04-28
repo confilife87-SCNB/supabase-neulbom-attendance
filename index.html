@@ -2073,12 +2073,16 @@ async function loadHrMonthlyData() {
 
     // 섹션2: 날짜별 상세 (사유 포함)
     lines.push('■ 날짜별 상세 현황');
+    var dayNames = ['일','월','화','수','목','금','토'];
     var header = ['이름'];
     allDates.forEach(function(d) {
       var parts = d.split('-');
-      header.push(parseInt(parts[1]) + '/' + parseInt(parts[2]));
+      var dateObj = new Date(d + 'T00:00:00');
+      var dow = dayNames[dateObj.getDay()];
+      header.push(parseInt(parts[1]) + '월' + parseInt(parts[2]) + '일(' + dow + ')');
     });
     lines.push(header.join('\t'));
+
 
     hrMonthlyDataCache.studentList.forEach(function(s) {
       var cols = [s.name];
@@ -2171,19 +2175,28 @@ async function loadHrMonthlyData() {
       ].map(csvEscape).join(','));
     });
 
-    // 빈 줄
+    // 빈 줄로 두 표를 명확히 분리
     rows.push('');
+    rows.push('');
+    rows.push('');
+    rows.push(csvEscape('===================================='));
     rows.push('');
 
     // ── 섹션2: 날짜별 상세 현황 (사유 포함) ──
     rows.push(csvEscape('[날짜별 상세 현황]'));
 
+
+    var dayNames = ['일','월','화','수','목','금','토'];
     var header = ['이름'];
     allDates.forEach(function(d) {
       var parts = d.split('-');
-      header.push(parseInt(parts[1]) + '/' + parseInt(parts[2]));
+      var dateObj = new Date(d + 'T00:00:00');
+      var dow = dayNames[dateObj.getDay()];
+      // 엑셀이 날짜로 인식하지 않도록 "4월20일(월)" 형식으로
+      header.push(parseInt(parts[1]) + '월' + parseInt(parts[2]) + '일(' + dow + ')');
     });
     rows.push(header.map(csvEscape).join(','));
+
 
     hrMonthlyDataCache.studentList.forEach(function(s) {
       var row = [s.name];
