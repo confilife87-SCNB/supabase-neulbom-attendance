@@ -2079,9 +2079,11 @@ async function loadHrMonthlyData() {
       var parts = d.split('-');
       var dateObj = new Date(d + 'T00:00:00');
       var dow = dayNames[dateObj.getDay()];
-      header.push(parseInt(parts[1]) + '월' + parseInt(parts[2]) + '일(' + dow + ')');
+      // 엑셀이 날짜로 인식 못하게: 앞에 작은따옴표 + "20일(월)/4월" 같은 비표준 형식
+      header.push(parts[1] + '/' + parts[2] + ' ' + dow);
     });
-    lines.push(header.join('\t'));
+    rows.push(header.map(csvEscape).join(','));
+
 
 
     hrMonthlyDataCache.studentList.forEach(function(s) {
