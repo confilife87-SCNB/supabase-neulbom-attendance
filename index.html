@@ -2577,17 +2577,24 @@ async function instLogin() {
     document.getElementById('inst-activity-area').style.display = 'block';
     document.getElementById('inst-activity-content').value = result.activityContent || '';
 
-    // ⭐ 대체강사 정보 자동 복원 — '(대체)' 포함 여부로만 판단
-    var savedRecorder = result.activityRecorder || '';
-    if (savedRecorder && savedRecorder.includes('(대체)')) {
+    // ⭐ 대체강사 정보 자동 복원
+    // 1순위: activity_logs.instructor (대체) 포함
+    // 2순위: attendance.recorder (대체강사) 포함
+    var savedRecorder = '';
+    if (result.activityRecorder && result.activityRecorder.includes('(대체)')) {
+      savedRecorder = result.activityRecorder.replace('(대체)', '').trim();
+    } else if (result.attendanceRecorder && result.attendanceRecorder.includes('(대체강사)')) {
+      savedRecorder = result.attendanceRecorder.replace('(대체강사)', '').trim();
+    }
+
+    if (savedRecorder) {
       var subCheck = document.getElementById('substitute-check');
       var subInput = document.getElementById('substitute-name');
       var subArea  = document.getElementById('substitute-area');
       if (subCheck && subInput && subArea) {
-        var cleanName = savedRecorder.replace('(대체)', '').trim();
         subCheck.checked = true;
         substituteMode   = true;
-        subInput.value   = cleanName;
+        subInput.value   = savedRecorder;
         subArea.classList.add('show');
       }
     }
@@ -4921,7 +4928,7 @@ async function generateAttendancePDF(month, targetProg) {
     // 1. 데이터 조회
     const [students, attendanceRaw, contacts, instructors] = await Promise.all([
       SUPABASE.select('students', '?select=grade,class_num,name,program,perm_note&order=grade.asc,class_num.asc,name.asc'),
-      SUPABASE.select('attendance', `?month=eq.${encodeURIComponent(month)}&status=neq.휴강&order=program.asc,date.asc`),
+      SUPABASE.select('attendance', `?month=eq.${encodeURIComponent(month)}&status=neq.휴강&order=program.asc,date.asc,period.asc`),
       SUPABASE.select('contacts', '?select=grade,class_num,name,phone'),
       SUPABASE.select('instructors', '?select=program,instructor_name')
     ]);
@@ -5288,9 +5295,8 @@ async function generateActivityPDF(month, targetProg) {
         return (order[a] || 0) - (order[b] || 0);
       });
       const firstPeriod = periods[0] || '';
-      const lastPeriod = periods[periods.length - 1] || '';
       const startTime = PERIOD_TIME[firstPeriod]?.start || '';
-      const endTime = PERIOD_TIME[lastPeriod]?.end || '';
+      const endTime   = PERIOD_TIME[firstPeriod]?.end   || '';
       // ⭐ hoursPerDay: students 기준이 아닌 activity_logs.period 기준으로 계산
       // "7교시" → 1, "7교시-8교시" → 2
       const calcHoursPerDay = (periodStr) => {
