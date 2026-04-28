@@ -1928,9 +1928,14 @@ async function loadHrMonthlyData() {
       var priority = { '결석': 4, '지각': 3, '조퇴': 2, '출석': 1 };
       var prev = dateStatusMap[r.name][r.date];
       if (!prev || (priority[r.status] || 0) > (priority[prev.status] || 0)) {
-        dateStatusMap[r.name][r.date] = { status: r.status, prog: r.prog || r.program || '' };
+        dateStatusMap[r.name][r.date] = {
+          status: r.status,
+          prog: r.prog || r.program || '',
+          reason: r.reason || ''
+        };
       }
     });
+
 
     var html = '';
 
@@ -1990,9 +1995,20 @@ async function loadHrMonthlyData() {
             else if (info.status === '지각') { symbol = '⊗'; bg = 'rgba(253,203,110,0.20);'; }
             else if (info.status === '조퇴') { symbol = '∅'; bg = 'rgba(225,112,85,0.08);'; }
           }
-          html += '<td style="font-size:0.82rem; background:' + bg + '"'
-                + ' title="' + (info ? escapeHtml(info.prog) + ' ' + escapeHtml(info.status) : '-') + '">'
-                + symbol + '</td>';
+          var tooltipText = '-';
+          var cellContent = symbol;
+          if (info) {
+            tooltipText = escapeHtml(info.prog) + ' ' + escapeHtml(info.status);
+            if (info.reason) tooltipText += ' (' + escapeHtml(info.reason) + ')';
+            // 결석/지각/조퇴일 때만 사유를 셀 아래 작게 표시
+            if (info.status !== '출석' && info.reason) {
+              cellContent = symbol + '<br><span style="font-size:0.6rem; color:var(--text-sub); display:block; line-height:1.1; word-break:keep-all;">' + escapeHtml(info.reason) + '</span>';
+            }
+          }
+          html += '<td style="font-size:0.82rem; background:' + bg + '; vertical-align:middle;"'
+                + ' title="' + tooltipText + '">'
+                + cellContent + '</td>';
+
         });
         html += '</tr>';
       });
@@ -2020,14 +2036,10 @@ async function loadHrMonthlyData() {
       return;
     }
 
-    var month = document.getElementById('hr-month-select').value;
-    var lines = [];
+    var month   = document.getElementById('hr-month-select').value;
+    var lines   = [];
+    var records = hrMonthlyDataCache.records || [];
 
-    // 제목
-    lines.push(currentHrGrade + '학년 ' + currentHrClass + '반 ' + month + ' 출결현황');
-    lines.push('');
-
-    var records  = hrMonthlyDataCache.records || [];
     var allDates = [...new Set(records.map(function(r) {
       return typeof r.date === 'string' ? r.date : String(r.date);
     }))].sort();
@@ -2038,45 +2050,66 @@ async function loadHrMonthlyData() {
       var priority = { '결석': 4, '지각': 3, '조퇴': 2, '출석': 1 };
       var prev = dateStatusMap[r.name][r.date];
       if (!prev || (priority[r.status] || 0) > (priority[prev.status] || 0)) {
-        dateStatusMap[r.name][r.date] = r.status;
+        dateStatusMap[r.name][r.date] = {
+          status: r.status,
+          reason: r.reason || ''
+        };
       }
     });
 
-    // 헤더 (요약 + 날짜별)
-    var headerCols = ['이름', '출석', '결석', '지각', '조퇴', '출석률'];
+    // 제목
+    lines.push('[' + currentHrGrade + '학년 ' + currentHrClass + '반 ' + month + ' 출결현황]');
+    lines.push('');
+
+    // 섹션1: 요약
+    lines.push('■ 월별 요약');
+    lines.push(['이름','출석','결석','지각','조퇴','출석률'].join('\t'));
+    hrMonthlyDataCache.studentList.forEach(function(s) {
+      lines.push([s.name, s.present, s.absent, s.late, s.leave, s.rate + '%'].join('\t'));
+    });
+
+    lines.push('');
+    lines.push('');
+
+    // 섹션2: 날짜별 상세 (사유 포함)
+    lines.push('■ 날짜별 상세 현황');
+    var header = ['이름'];
     allDates.forEach(function(d) {
       var parts = d.split('-');
-      headerCols.push(parseInt(parts[1]) + '/' + parseInt(parts[2]));
+      header.push(parseInt(parts[1]) + '/' + parseInt(parts[2]));
     });
-    lines.push(headerCols.join('\t'));
+    lines.push(header.join('\t'));
 
-    // 데이터
     hrMonthlyDataCache.studentList.forEach(function(s) {
-      var cols = [
-        s.name,
-        s.present,
-        s.absent,
-        s.late,
-        s.leave,
-        s.rate + '%'
-      ];
+      var cols = [s.name];
       allDates.forEach(function(d) {
-        var status = (dateStatusMap[s.name] && dateStatusMap[s.name][d]) || '';
-        var symbol = '';
-        if      (status === '출석') symbol = '○';
-        else if (status === '결석') symbol = '✖';
-        else if (status === '지각') symbol = '⊗';
-        else if (status === '조퇴') symbol = '∅';
-        cols.push(symbol);
+        var info = dateStatusMap[s.name] && dateStatusMap[s.name][d];
+        if (!info) {
+          cols.push('');
+        } else {
+          var symbol = '';
+          if      (info.status === '출석') symbol = '○';
+          else if (info.status === '결석') symbol = '✖';
+          else if (info.status === '지각') symbol = '⊗';
+          else if (info.status === '조퇴') symbol = '∅';
+          if (info.status !== '출석' && info.reason) {
+            cols.push(symbol + ' ' + info.reason);
+          } else {
+            cols.push(symbol);
+          }
+        }
       });
       lines.push(cols.join('\t'));
     });
+
+    lines.push('');
+    lines.push('※ 범례: ○ 출석, ✖ 결석, ⊗ 지각, ∅ 조퇴');
 
     var text = lines.join('\n');
 
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text).then(function() {
-        showToast('📋 클립보드에 복사되었습니다! 엑셀에 붙여넣기 하세요.');
+        showToast('📋 클립보드 복사 완료! (요약 + 날짜별 상세 + 사유 포함)');
       });
     } else {
       var ta = document.createElement('textarea');
@@ -2085,9 +2118,10 @@ async function loadHrMonthlyData() {
       ta.select();
       document.execCommand('copy');
       document.body.removeChild(ta);
-      showToast('📋 클립보드에 복사되었습니다! 엑셀에 붙여넣기 하세요.');
+      showToast('📋 클립보드 복사 완료! (요약 + 날짜별 상세 + 사유 포함)');
     }
   }
+
 
   function exportHrMonthlyCSV() {
     if (!hrMonthlyDataCache || hrMonthlyDataCache.studentList.length === 0) {
@@ -2095,56 +2129,88 @@ async function loadHrMonthlyData() {
       return;
     }
 
-    var month    = document.getElementById('hr-month-select').value;
-    var BOM      = '\uFEFF';
-    var rows     = [];
-    var records  = hrMonthlyDataCache.records || [];
+    var month   = document.getElementById('hr-month-select').value;
+    var BOM     = '\uFEFF';
+    var rows    = [];
+    var records = hrMonthlyDataCache.records || [];
 
     // ── 날짜 목록 ──
     var allDates = [...new Set(records.map(function(r) {
       return typeof r.date === 'string' ? r.date : String(r.date);
     }))].sort();
 
-    // ── 학생별 날짜\times출결 맵 ──
+    // ── 학생별 날짜×{출결, 사유} 맵 ──
     var dateStatusMap = {};
     records.forEach(function(r) {
       if (!dateStatusMap[r.name]) dateStatusMap[r.name] = {};
       var priority = { '결석': 4, '지각': 3, '조퇴': 2, '출석': 1 };
       var prev = dateStatusMap[r.name][r.date];
       if (!prev || (priority[r.status] || 0) > (priority[prev.status] || 0)) {
-        dateStatusMap[r.name][r.date] = r.status;
+        dateStatusMap[r.name][r.date] = {
+          status: r.status,
+          reason: r.reason || ''
+        };
       }
     });
 
-    // ── 헤더 ──
-    var header = ['이름', '출석', '결석', '지각', '조퇴', '출석률'];
+    // CSV 셀 escape (쉼표/줄바꿈/따옴표 처리)
+    function csvEscape(val) {
+      var s = String(val == null ? '' : val);
+      if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }
+
+    // ── 섹션1: 월별 요약 ──
+    rows.push(csvEscape('[월별 요약 - ' + currentHrGrade + '학년 ' + currentHrClass + '반 ' + month + ']'));
+    rows.push(['이름','출석','결석','지각','조퇴','출석률'].map(csvEscape).join(','));
+    hrMonthlyDataCache.studentList.forEach(function(s) {
+      rows.push([
+        s.name, s.present, s.absent, s.late, s.leave, s.rate + '%'
+      ].map(csvEscape).join(','));
+    });
+
+    // 빈 줄
+    rows.push('');
+    rows.push('');
+
+    // ── 섹션2: 날짜별 상세 현황 (사유 포함) ──
+    rows.push(csvEscape('[날짜별 상세 현황]'));
+
+    var header = ['이름'];
     allDates.forEach(function(d) {
       var parts = d.split('-');
       header.push(parseInt(parts[1]) + '/' + parseInt(parts[2]));
     });
-    rows.push(header.join(','));
+    rows.push(header.map(csvEscape).join(','));
 
-    // ── 데이터 ──
     hrMonthlyDataCache.studentList.forEach(function(s) {
-      var row = [
-        s.name,
-        s.present,
-        s.absent,
-        s.late,
-        s.leave,
-        s.rate + '%'
-      ];
+      var row = [s.name];
       allDates.forEach(function(d) {
-        var status = (dateStatusMap[s.name] && dateStatusMap[s.name][d]) || '';
-        var symbol = '';
-        if      (status === '출석') symbol = '○';
-        else if (status === '결석') symbol = '✖';
-        else if (status === '지각') symbol = '⊗';
-        else if (status === '조퇴') symbol = '∅';
-        row.push(symbol);
+        var info = dateStatusMap[s.name] && dateStatusMap[s.name][d];
+        if (!info) {
+          row.push('');
+        } else {
+          var symbol = '';
+          if      (info.status === '출석') symbol = '○';
+          else if (info.status === '결석') symbol = '✖';
+          else if (info.status === '지각') symbol = '⊗';
+          else if (info.status === '조퇴') symbol = '∅';
+          // 결석/지각/조퇴면 "기호 사유" 형태로 표시
+          if (info.status !== '출석' && info.reason) {
+            row.push(symbol + ' ' + info.reason);
+          } else {
+            row.push(symbol);
+          }
+        }
       });
-      rows.push(row.join(','));
+      rows.push(row.map(csvEscape).join(','));
     });
+
+    // ── 범례 ──
+    rows.push('');
+    rows.push(csvEscape('※ 범례: ○ 출석, ✖ 결석, ⊗ 지각, ∅ 조퇴'));
 
     var csvContent = BOM + rows.join('\n');
     var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -2158,8 +2224,9 @@ async function loadHrMonthlyData() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    showToast('📥 CSV 다운로드 완료!');
+    showToast('📥 CSV 다운로드 완료! (요약 + 날짜별 상세 + 사유 포함)');
   }
+
 
   function renderHrGrid() {
     var grid = document.getElementById('hr-grid');
