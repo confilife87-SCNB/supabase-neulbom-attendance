@@ -4,6 +4,12 @@
 // ==========================================
 
 const API = {
+_toLocalDateStr(d) {
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+},
+
 
   // ==========================================
   // 🔐 세션 관리
@@ -149,7 +155,11 @@ const API = {
       const start = new Date(ex.start_date + 'T00:00:00');
       const end   = new Date(ex.end_date   + 'T00:00:00');
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        operationExceptions.push(d.toISOString().slice(0, 10));
+        operationExceptions.push(
+          d.getFullYear() + '-' +
+          String(d.getMonth() + 1).padStart(2, '0') + '-' +
+          String(d.getDate()).padStart(2, '0')
+        );
       }
     });
 
@@ -1159,16 +1169,21 @@ const API = {
     return log.split(/[,/·\-\s]+/).map(p => p.trim()).includes(target);
   },
 
-  _dateList(startDate, endDate) {
-    const dates = [];
-    const cur   = new Date(startDate + 'T00:00:00');
-    const end   = new Date(endDate   + 'T00:00:00');
-    while (cur <= end) {
-      dates.push(cur.toISOString().slice(0, 10));
-      cur.setDate(cur.getDate() + 1);
-    }
-    return dates;
-  },
+_dateList(startDate, endDate) {
+  const dates = [];
+  const cur   = new Date(startDate + 'T00:00:00');
+  const end   = new Date(endDate   + 'T00:00:00');
+  while (cur <= end) {
+    dates.push(
+      cur.getFullYear() + '-' +
+      String(cur.getMonth() + 1).padStart(2, '0') + '-' +
+      String(cur.getDate()).padStart(2, '0')
+    );
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
+
 
   _getDateRangeByMonth(monthText) {
     const monthNum = parseInt(String(monthText || '').replace(/[^0-9]/g, ''), 10);
