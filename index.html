@@ -2577,8 +2577,6 @@ async function instLogin() {
     document.getElementById('inst-activity-area').style.display = 'block';
     document.getElementById('inst-activity-content').value = result.activityContent || '';
 
-    // ⭐ 대체강사 정보 자동 복원
-    var savedRecorder = result.activityRecorder || '';
     // ⭐ 대체강사 정보 자동 복원 — '(대체)' 포함 여부로만 판단
     var savedRecorder = result.activityRecorder || '';
     if (savedRecorder && savedRecorder.includes('(대체)')) {
@@ -4997,7 +4995,7 @@ async function generateAttendancePDF(month, targetProg) {
 
       // ⭐ A안: 날짜+교시 조합으로 컬럼 구성
       const classDatePeriods = [];
-      const seenDatePeriods  = {};           // ← 이름 변경
+      const seenDatePeriods  = {};
       attendanceRaw
         .filter(r => r.program === progName)
         .sort((a, b) => a.date.localeCompare(b.date) || a.period.localeCompare(b.period))
@@ -5008,16 +5006,7 @@ async function generateAttendancePDF(month, targetProg) {
             classDatePeriods.push({ date: r.date, period: r.period });
           }
         });
-      attendanceRaw
-        .filter(r => r.program === progName)
-        .sort((a, b) => a.date.localeCompare(b.date) || a.period.localeCompare(b.period))
-        .forEach(r => {
-          const k = `${r.date}|${r.period}`;
-          if (!seen[k]) {
-            seen[k] = true;
-            classDatePeriods.push({ date: r.date, period: r.period });
-          }
-        });
+      // ← 두 번째 attendanceRaw 루프 완전 제거
 
       // 10개씩 페이지 분할
       const PAGE_COLS   = 10;
