@@ -204,8 +204,23 @@ const API = {
       contactMap[`${c.grade}_${c.class_num}_${c.name}`] = c.phone || '';
     });
 
-    // 활동일지
-    const activityContent = actLogs.length > 0 ? actLogs[0].content : '';
+    // ⭐ 활동일지 — targetPeriod 기준으로 정확한 row 매칭
+    const activityContent = (() => {
+      if (!actLogs || actLogs.length === 0) return '';
+      // 정확히 일치하는 period 먼저 찾기
+      const exact = actLogs.find(log =>
+        String(log.period || '').trim() === targetPeriod
+      );
+      if (exact) return exact.content || '';
+      // 복합 교시 (예: "6교시-7교시") 안에 포함되는 경우
+      const partial = actLogs.find(log =>
+        String(log.period || '')
+          .split(/[,\-·\s]+/)
+          .map(p => p.trim())
+          .includes(targetPeriod)
+      );
+      return partial ? partial.content || '' : '';
+    })();
 
     // 학생 목록 구성
     const seen   = {};
@@ -358,8 +373,9 @@ const API = {
     };
 
     // ⭐ B4 수정: id 기반으로 정확한 UPDATE
+    // ⭐ periodText 기준으로 정확한 row 조회 (엉뚱한 row 수정 방지)
     const existing = await SUPABASE.select('activity_logs',
-      `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&select=id`
+      `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&period=eq.${encodeURIComponent(periodText)}&select=id`
     );
 
     if (existing.length > 0) {
