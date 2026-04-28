@@ -155,11 +155,7 @@ _toLocalDateStr(d) {
       const start = new Date(ex.start_date + 'T00:00:00');
       const end   = new Date(ex.end_date   + 'T00:00:00');
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        operationExceptions.push(
-          d.getFullYear() + '-' +
-          String(d.getMonth() + 1).padStart(2, '0') + '-' +
-          String(d.getDate()).padStart(2, '0')
-        );
+        operationExceptions.push(this._toLocalDateStr(d));
       }
     });
 
@@ -541,7 +537,7 @@ _toLocalDateStr(d) {
   },
 
   async saveClassNotice(grade, classNum, notice) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = this._toLocalDateStr(new Date());
     await SUPABASE.delete('pre_memos',
       `?date=eq.${today}&grade=eq.${grade}&class_num=eq.${classNum}&name=eq.__공지__`
     );
@@ -559,7 +555,7 @@ _toLocalDateStr(d) {
   },
 
   async getClassNotice(grade, classNum) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = this._toLocalDateStr(new Date());
     const data  = await SUPABASE.select('pre_memos',
       `?date=eq.${today}&grade=eq.${grade}&class_num=eq.${classNum}&name=eq.__공지__`
     );
@@ -961,7 +957,7 @@ _toLocalDateStr(d) {
   },
 
   async saveAdminDailyNotes(grade, classNum, memoData) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = this._toLocalDateStr(new Date());
     await SUPABASE.delete('pre_memos',
       `?date=eq.${today}&grade=eq.${grade}&class_num=eq.${classNum}&name=neq.__공지__`
     );
@@ -1182,7 +1178,7 @@ _dateList(startDate, endDate) {
     cur.setDate(cur.getDate() + 1);
   }
   return dates;
-}
+},      
 
 
   _getDateRangeByMonth(monthText) {
@@ -1395,24 +1391,25 @@ _dateList(startDate, endDate) {
         startDate = endDate = dateValue;
         break;
 
-      case 'weekly': {
-        const dow          = d.getDay();
-        const mondayOffset = dow === 0 ? -6 : 1 - dow;
-        const monday       = new Date(d);
-        monday.setDate(d.getDate() + mondayOffset);
-        const friday = new Date(monday);
-        friday.setDate(monday.getDate() + 4);
-        startDate = monday.toISOString().slice(0, 10);
-        endDate   = friday.toISOString().slice(0, 10);
-        break;
-      }
+case 'weekly': {
+  const dow          = d.getDay();
+  const mondayOffset = dow === 0 ? -6 : 1 - dow;
+  const monday       = new Date(d);
+  monday.setDate(d.getDate() + mondayOffset);
+  const friday = new Date(monday);
+  friday.setDate(monday.getDate() + 4);
+  startDate = this._toLocalDateStr(monday);    // ✅
+  endDate   = this._toLocalDateStr(friday);    // ✅
+  break;
+}
 
-      case 'monthly': {
-        startDate       = dateValue.slice(0, 7) + '-01';
-        const lastDay   = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-        endDate         = lastDay.toISOString().slice(0, 10);
-        break;
-      }
+case 'monthly': {
+  startDate       = dateValue.slice(0, 7) + '-01';
+  const lastDay   = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  endDate         = this._toLocalDateStr(lastDay);    // ✅
+  break;
+}
+
 
       case 'semester': {
         const month = d.getMonth() + 1;
