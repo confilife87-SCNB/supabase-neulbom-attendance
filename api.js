@@ -1178,7 +1178,7 @@ _dateList(startDate, endDate) {
     cur.setDate(cur.getDate() + 1);
   }
   return dates;
-},      
+},
 
 
   _getDateRangeByMonth(monthText) {
