@@ -222,8 +222,7 @@ const API = {
 
     const activityContent  = actLogMatched ? actLogMatched.content   || '' : '';
     const activityRecorder = actLogMatched ? actLogMatched.instructor || '' : '';
-
-    const actLogMatched = (() => {
+    
       if (!actLogs || actLogs.length === 0) return null;
       // 정확히 일치하는 period 먼저 찾기
       const exact = actLogs.find(log =>
