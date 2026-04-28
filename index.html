@@ -581,10 +581,30 @@
         <div class="section-title" style="color:var(--blue-deep); font-size:0.95rem; border-color:var(--blue);">
           📝 오늘의 활동일지
         </div>
-        <div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:8px;">
-          수업 종료 후 활동 내용을 작성해주세요. 출결과 함께 저장됩니다.
+        <!-- ⭐ U4: 활동일지 미작성 경고 배너 -->
+        <div id="activity-warning-banner" style="
+          background:rgba(214,48,49,0.1);
+          border:1.5px solid var(--red);
+          border-radius:8px;
+          padding:10px 14px;
+          margin-bottom:10px;
+          display:flex;
+          align-items:center;
+          gap:8px;
+          font-size:0.88rem;
+          font-weight:700;
+          color:var(--red-deep);
+        ">
+          <span style="font-size:1.2rem;">⚠️</span>
+          <span>활동일지를 아직 작성하지 않았습니다. 수업 종료 후 반드시 작성해 주세요!</span>
         </div>
-        <textarea id="inst-activity-content" placeholder="예시) 아크릴물감을 활용하여 채색하기" style="min-height:100px; margin-bottom:8px;"></textarea>
+        <div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:8px;">
+          수업 내용을 간략히 작성해주세요. 출결과 함께 저장됩니다.
+        </div>
+        <textarea id="inst-activity-content"
+          placeholder="예시) 아크릴물감을 활용하여 채색하기"
+          style="min-height:100px; margin-bottom:8px;"
+          oninput="toggleActivityWarning(this.value)"></textarea>
       </div>
 
       <button class="btn-action blue" onclick="confirmInstSave()" style="margin-top:16px;">💾 최종 저장</button>
@@ -1620,7 +1640,16 @@ document.addEventListener("DOMContentLoaded", async function() {
       gSel.appendChild(opt);
     });
 
-    // 3. 마지막 로그인 복원
+    // 3. operation_exceptions → holidays 배열 갱신
+    if (data.operationExceptions && data.operationExceptions.length > 0) {
+      data.operationExceptions.forEach(function(d) {
+        if (holidays2026.indexOf(d) === -1) {
+          holidays2026.push(d);
+        }
+      });
+    }
+
+    // 4. 마지막 로그인 복원
     restoreLastLogin();
 
   } catch (err) {
@@ -1679,6 +1708,13 @@ document.addEventListener("DOMContentLoaded", async function() {
         }, 500);
       }
     } catch(e) {}
+  }
+
+  // ⭐ U4: 활동일지 경고 배너 토글
+  function toggleActivityWarning(value) {
+    var banner = document.getElementById('activity-warning-banner');
+    if (!banner) return;
+    banner.style.display = (value && value.trim() !== '') ? 'none' : 'flex';
   }
 
   // ⭐ 기억3: 대체강사 토글
@@ -1879,17 +1915,96 @@ async function loadHrMonthlyData() {
       return;
     }
 
-    var html = '<table class="admin-table"><tr><th>이름</th><th>출석</th><th>결석</th><th>지각</th><th>조퇴</th><th>출석률</th></tr>';
+    // ── 날짜 목록 추출 ──
+    var allDates = [...new Set((result.records || []).map(function(r) {
+      return typeof r.date === 'string' ? r.date : String(r.date);
+    }))].sort();
+
+    // ── 학생별 날짜\times출결 맵 ──
+    var dateStatusMap = {};
+    (result.records || []).forEach(function(r) {
+      if (!dateStatusMap[r.name]) dateStatusMap[r.name] = {};
+      var priority = { '결석': 4, '지각': 3, '조퇴': 2, '출석': 1 };
+      var prev = dateStatusMap[r.name][r.date];
+      if (!prev || (priority[r.status] || 0) > (priority[prev.status] || 0)) {
+        dateStatusMap[r.name][r.date] = { status: r.status, prog: r.prog || r.program || '' };
+      }
+    });
+
+    var html = '';
+
+    // ── 요약 표 ──
+    html += '<div style="font-weight:700; font-size:0.9rem; margin-bottom:8px; color:var(--text-sub);">📊 월별 요약</div>';
+    html += '<div style="overflow-x:auto; margin-bottom:20px;">';
+    html += '<table class="admin-table">';
+    html += '<tr><th>이름</th><th>출석</th><th>결석</th><th>지각</th><th>조퇴</th><th>출석률</th></tr>';
     result.studentList.forEach(function(s) {
       var rateColor = s.rate >= 90 ? 'var(--green-deep)' : s.rate >= 80 ? '#e17055' : 'var(--red-deep)';
-      html += '<tr><td style="font-weight:600;">' + escapeHtml(s.name) + '</td>';
+      html += '<tr>';
+      html += '<td style="font-weight:600; text-align:left;">' + escapeHtml(s.name) + '</td>';
       html += '<td style="color:var(--green-deep);">' + s.present + '</td>';
       html += '<td style="color:var(--red-deep);">' + s.absent + '</td>';
       html += '<td>' + s.late + '</td>';
       html += '<td>' + s.leave + '</td>';
-      html += '<td style="color:' + rateColor + '; font-weight:700;">' + s.rate + '%</td></tr>';
+      html += '<td style="color:' + rateColor + '; font-weight:700;">' + s.rate + '%</td>';
+      html += '</tr>';
     });
     html += '</table>';
+    html += '</div>';
+
+    // ── 날짜별 상세 표 ──
+    if (allDates.length > 0) {
+      html += '<div style="font-weight:700; font-size:0.9rem; margin-bottom:8px; color:var(--text-sub);">📅 날짜별 상세 현황</div>';
+      html += '<div style="overflow-x:auto;">';
+      html += '<table class="admin-table" style="min-width:' + (allDates.length * 40 + 120) + 'px;">';
+
+      // 헤더
+      html += '<tr>';
+      html += '<th style="min-width:80px; position:sticky; left:0; background:var(--input-bg); z-index:1;">이름</th>';
+      allDates.forEach(function(d) {
+        var parts   = d.split('-');
+        var mmdd    = parseInt(parts[1]) + '/' + parseInt(parts[2]);
+        var dateObj = new Date(d + 'T00:00:00');
+        var dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+        var dow     = dayNames[dateObj.getDay()];
+        var dayColor = (dateObj.getDay() === 0 || dateObj.getDay() === 6)
+          ? 'color:var(--red-deep);' : '';
+        html += '<th style="min-width:36px; font-size:0.72rem; ' + dayColor + '">'
+              + mmdd + '<br>(' + dow + ')</th>';
+      });
+      html += '</tr>';
+
+      // 데이터 행
+      result.studentList.forEach(function(s) {
+        html += '<tr>';
+        html += '<td style="font-weight:600; text-align:left; position:sticky; left:0; background:var(--surface); z-index:1;">'
+              + escapeHtml(s.name) + '</td>';
+        allDates.forEach(function(d) {
+          var info   = dateStatusMap[s.name] && dateStatusMap[s.name][d];
+          var symbol = '';
+          var bg     = '';
+          if (info) {
+            if      (info.status === '출석') { symbol = '○'; bg = 'rgba(0,184,148,0.08);'; }
+            else if (info.status === '결석') { symbol = '✖'; bg = 'rgba(214,48,49,0.10);'; }
+            else if (info.status === '지각') { symbol = '⊗'; bg = 'rgba(253,203,110,0.20);'; }
+            else if (info.status === '조퇴') { symbol = '∅'; bg = 'rgba(225,112,85,0.08);'; }
+          }
+          html += '<td style="font-size:0.82rem; background:' + bg + '"'
+                + ' title="' + (info ? escapeHtml(info.prog) + ' ' + escapeHtml(info.status) : '-') + '">'
+                + symbol + '</td>';
+        });
+        html += '</tr>';
+      });
+
+      html += '</table>';
+      html += '</div>';
+
+      // 범례
+      html += '<div style="font-size:0.78rem; color:var(--text-sub); margin-top:8px; padding:8px; background:var(--input-bg); border-radius:var(--radius-sm);">';
+      html += '○ 출석 &nbsp; ✖ 결석 &nbsp; ⊗ 지각 &nbsp; ∅ 조퇴';
+      html += '</div>';
+    }
+
     listDiv.innerHTML = html;
 
   } catch (err) {
@@ -1898,7 +2013,6 @@ async function loadHrMonthlyData() {
     showLoading(false);
   }
 }
-
   function exportHrMonthlyClipboard() {
     if (!hrMonthlyDataCache || hrMonthlyDataCache.studentList.length === 0) {
       showToast('📋 내보낼 데이터가 없습니다. 먼저 조회하세요.');
@@ -2606,9 +2720,26 @@ async function confirmInstSave() {
 
     var actStatus = document.getElementById('sum-activity-status');
     if (actContent) {
-      actStatus.innerHTML = '<span style="color:var(--green-deep);">✅ 활동일지도 저장되었습니다</span>';
+      actStatus.innerHTML = '<span style="color:var(--green-deep); font-size:0.95rem;">✅ 활동일지도 저장되었습니다</span>';
     } else {
-      actStatus.innerHTML = '<span style="color:var(--orange-deep);">⚠️ 활동일지가 미작성 상태입니다</span>';
+      actStatus.innerHTML = `
+        <div style="
+          background:rgba(214,48,49,0.12);
+          border:2px solid var(--red-deep);
+          border-radius:8px;
+          padding:12px 16px;
+          margin:8px 0;
+          text-align:center;
+        ">
+          <div style="font-size:1.5rem; margin-bottom:4px;">⚠️</div>
+          <div style="color:var(--red-deep); font-weight:700; font-size:0.95rem;">
+            활동일지가 작성되지 않았습니다!
+          </div>
+          <div style="color:var(--red-deep); font-size:0.82rem; margin-top:4px;">
+            수업 종료 후 반드시 작성해 주세요.
+          </div>
+        </div>
+      `;
     }
 
     document.getElementById('save-summary-modal').style.display = 'flex';
@@ -4952,10 +5083,11 @@ async function generateActivityPDF(month, targetProg) {
       actByProg[a.program].push(a);
     });
 
-    let programs = [...new Set(actLogs.map(a => a.program))].sort();
-    if (targetProg && targetProg !== '전체') {
-      programs = programs.filter(p => p === targetProg);
-    }
+    // ⭐ F1: students 기준 전체 프로그램 생성 (활동일지 미입력 포함)
+    let allPrograms = [...new Set(students.map(s => s.program))].sort();
+    let programs    = (targetProg && targetProg !== '전체')
+      ? allPrograms.filter(p => p === targetProg)
+      : allPrograms;
 
     let html = getActivityPDFStyle();
     html += '<div class="pdf-wrap">';
