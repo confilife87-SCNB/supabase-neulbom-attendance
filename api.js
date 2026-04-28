@@ -222,25 +222,6 @@ const API = {
 
     const activityContent  = actLogMatched ? actLogMatched.content   || '' : '';
     const activityRecorder = actLogMatched ? actLogMatched.instructor || '' : '';
-    
-      if (!actLogs || actLogs.length === 0) return null;
-      // 정확히 일치하는 period 먼저 찾기
-      const exact = actLogs.find(log =>
-        String(log.period || '').trim() === targetPeriod
-      );
-      if (exact) return exact;
-      // 복합 교시 안에 포함되는 경우
-      const partial = actLogs.find(log =>
-        String(log.period || '')
-          .split(/[,\-·\s]+/)
-          .map(p => p.trim())
-          .includes(targetPeriod)
-      );
-      return partial || null;
-    })();
-
-    const activityContent  = actLogMatched ? actLogMatched.content   || '' : '';
-    const activityRecorder = actLogMatched ? actLogMatched.instructor || '' : '';
 
     // ⭐ attendance.recorder 에서 대체강사 정보 추출
     const attendanceRecorder = (() => {
