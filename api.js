@@ -242,6 +242,14 @@ const API = {
     const activityContent  = actLogMatched ? actLogMatched.content   || '' : '';
     const activityRecorder = actLogMatched ? actLogMatched.instructor || '' : '';
 
+    // ⭐ attendance.recorder 에서 대체강사 정보 추출
+    const attendanceRecorder = (() => {
+      const recorders = existingArr
+        .map(r => r.recorder || '')
+        .filter(r => r.includes('(대체강사)'));
+      return recorders.length > 0 ? recorders[0] : '';
+    })();
+
     // 학생 목록 구성
     const seen   = {};
     const result = [];
@@ -267,7 +275,7 @@ const API = {
       return a.name.localeCompare(b.name, 'ko-KR');
     });
 
-    return { students: result, existing, activityContent, activityRecorder };
+    return { students: result, existing, activityContent, activityRecorder, attendanceRecorder };
   },
 
   async saveAttendanceData(selectedDate, progName, day, period, attendanceList, isCanceled, substituteInstructor) {
