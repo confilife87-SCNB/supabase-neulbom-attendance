@@ -2575,9 +2575,7 @@ async function instLogin() {
     document.getElementById('inst-activity-area').style.display = 'block';
     document.getElementById('inst-activity-content').value = result.activityContent || '';
 
-    // ⭐ 대체강사 정보 자동 복원
-    // 1순위: activity_logs.instructor (대체) 포함
-    // 2순위: attendance.recorder (대체강사) 포함
+    // ⭐ 대체강사 정보 자동 복원 (체크/해제 모두 처리)
     var savedRecorder = '';
     if (result.activityRecorder && result.activityRecorder.includes('(대체)')) {
       savedRecorder = result.activityRecorder.replace('(대체)', '').trim();
@@ -2585,18 +2583,26 @@ async function instLogin() {
       savedRecorder = result.attendanceRecorder.replace('(대체강사)', '').trim();
     }
 
+    var subCheck = document.getElementById('substitute-check');
+    var subInput = document.getElementById('substitute-name');
+    var subArea  = document.getElementById('substitute-area');
+
     if (savedRecorder) {
-      var subCheck = document.getElementById('substitute-check');
-      var subInput = document.getElementById('substitute-name');
-      var subArea  = document.getElementById('substitute-area');
-      if (subCheck && subInput && subArea) {
-        subCheck.checked = true;
-        substituteMode   = true;
-        subInput.value   = savedRecorder;
-        subArea.classList.add('show');
-      }
+      // 대체강사로 저장된 기록이 있으면 → 체크 + 이름 자동 입력
+      if (subCheck) subCheck.checked = true;
+      if (subInput) subInput.value = savedRecorder;
+      if (subArea) subArea.classList.add('show');
+      substituteMode = true;
+      console.log('✅ 대체강사 정보 복원:', savedRecorder);
+    } else {
+      // 대체강사 기록이 없으면 → 체크 해제 + 입력란 비우기
+      if (subCheck) subCheck.checked = false;
+      if (subInput) subInput.value = '';
+      if (subArea) subArea.classList.remove('show');
+      substituteMode = false;
     }
 
+    
     // ⭐ 활동일지 기존 내용 있으면 경고 배너 숨김, 없으면 표시
     toggleActivityWarning(result.activityContent || '');
 
