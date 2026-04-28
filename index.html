@@ -2598,18 +2598,6 @@ async function instLogin() {
         subArea.classList.add('show');
       }
     }
-    // 대체강사로 저장된 경우 체크박스 자동 체크
-      var subCheck = document.getElementById('substitute-check');
-      var subInput = document.getElementById('substitute-name');
-      var subArea  = document.getElementById('substitute-area');
-      if (subCheck && subInput && subArea) {
-        var cleanName = savedRecorder.replace('(대체)', '').trim();
-        subCheck.checked = true;
-        substituteMode   = true;
-        subInput.value   = cleanName;
-        subArea.classList.add('show');
-      }
-    }
 
     // ⭐ 활동일지 기존 내용 있으면 경고 배너 숨김, 없으면 표시
     toggleActivityWarning(result.activityContent || '');
@@ -2620,6 +2608,7 @@ async function instLogin() {
     showLoading(false);
   }
 }
+
 
   // ⭐ 담임 메모 파싱 — "상태|사유" 형식 (A안)
   function parseDailyNote(note) {
