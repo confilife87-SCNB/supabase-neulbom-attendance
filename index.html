@@ -1575,6 +1575,9 @@
     // ⭐ 활동일지 영역 초기화
     document.getElementById('inst-activity-area').style.display = 'none';
     document.getElementById('inst-activity-content').value = '';
+    // ⭐ 활동일지 경고 배너 초기화
+    var actBanner = document.getElementById('activity-warning-banner');
+    if (actBanner) actBanner.style.display = 'flex';
     isSaved = true;
   }
 
@@ -2026,12 +2029,49 @@ async function loadHrMonthlyData() {
     lines.push(currentHrGrade + '학년 ' + currentHrClass + '반 ' + month + ' 출결현황');
     lines.push('');
 
-    // 헤더
-    lines.push('이름\t출석\t결석\t지각\t조퇴\t출석률');
+    var records  = hrMonthlyDataCache.records || [];
+    var allDates = [...new Set(records.map(function(r) {
+      return typeof r.date === 'string' ? r.date : String(r.date);
+    }))].sort();
+
+    var dateStatusMap = {};
+    records.forEach(function(r) {
+      if (!dateStatusMap[r.name]) dateStatusMap[r.name] = {};
+      var priority = { '결석': 4, '지각': 3, '조퇴': 2, '출석': 1 };
+      var prev = dateStatusMap[r.name][r.date];
+      if (!prev || (priority[r.status] || 0) > (priority[prev.status] || 0)) {
+        dateStatusMap[r.name][r.date] = r.status;
+      }
+    });
+
+    // 헤더 (요약 + 날짜별)
+    var headerCols = ['이름', '출석', '결석', '지각', '조퇴', '출석률'];
+    allDates.forEach(function(d) {
+      var parts = d.split('-');
+      headerCols.push(parseInt(parts[1]) + '/' + parseInt(parts[2]));
+    });
+    lines.push(headerCols.join('\t'));
 
     // 데이터
     hrMonthlyDataCache.studentList.forEach(function(s) {
-      lines.push(s.name + '\t' + s.present + '\t' + s.absent + '\t' + s.late + '\t' + s.leave + '\t' + s.rate + '%');
+      var cols = [
+        s.name,
+        s.present,
+        s.absent,
+        s.late,
+        s.leave,
+        s.rate + '%'
+      ];
+      allDates.forEach(function(d) {
+        var status = (dateStatusMap[s.name] && dateStatusMap[s.name][d]) || '';
+        var symbol = '';
+        if      (status === '출석') symbol = '○';
+        else if (status === '결석') symbol = '✖';
+        else if (status === '지각') symbol = '⊗';
+        else if (status === '조퇴') symbol = '∅';
+        cols.push(symbol);
+      });
+      lines.push(cols.join('\t'));
     });
 
     var text = lines.join('\n');
@@ -2057,26 +2097,63 @@ async function loadHrMonthlyData() {
       return;
     }
 
-    var month = document.getElementById('hr-month-select').value;
-    var rows = [];
+    var month    = document.getElementById('hr-month-select').value;
+    var BOM      = '\uFEFF';
+    var rows     = [];
+    var records  = hrMonthlyDataCache.records || [];
 
-    // BOM 추가 (엑셀 한글 깨짐 방지)
-    var BOM = '\uFEFF';
+    // ── 날짜 목록 ──
+    var allDates = [...new Set(records.map(function(r) {
+      return typeof r.date === 'string' ? r.date : String(r.date);
+    }))].sort();
 
-    // 헤더
-    rows.push('이름,출석,결석,지각,조퇴,출석률');
+    // ── 학생별 날짜\times출결 맵 ──
+    var dateStatusMap = {};
+    records.forEach(function(r) {
+      if (!dateStatusMap[r.name]) dateStatusMap[r.name] = {};
+      var priority = { '결석': 4, '지각': 3, '조퇴': 2, '출석': 1 };
+      var prev = dateStatusMap[r.name][r.date];
+      if (!prev || (priority[r.status] || 0) > (priority[prev.status] || 0)) {
+        dateStatusMap[r.name][r.date] = r.status;
+      }
+    });
 
-    // 데이터
+    // ── 헤더 ──
+    var header = ['이름', '출석', '결석', '지각', '조퇴', '출석률'];
+    allDates.forEach(function(d) {
+      var parts = d.split('-');
+      header.push(parseInt(parts[1]) + '/' + parseInt(parts[2]));
+    });
+    rows.push(header.join(','));
+
+    // ── 데이터 ──
     hrMonthlyDataCache.studentList.forEach(function(s) {
-      rows.push(s.name + ',' + s.present + ',' + s.absent + ',' + s.late + ',' + s.leave + ',' + s.rate + '%');
+      var row = [
+        s.name,
+        s.present,
+        s.absent,
+        s.late,
+        s.leave,
+        s.rate + '%'
+      ];
+      allDates.forEach(function(d) {
+        var status = (dateStatusMap[s.name] && dateStatusMap[s.name][d]) || '';
+        var symbol = '';
+        if      (status === '출석') symbol = '○';
+        else if (status === '결석') symbol = '✖';
+        else if (status === '지각') symbol = '⊗';
+        else if (status === '조퇴') symbol = '∅';
+        row.push(symbol);
+      });
+      rows.push(row.join(','));
     });
 
     var csvContent = BOM + rows.join('\n');
     var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    var url = URL.createObjectURL(blob);
+    var url  = URL.createObjectURL(blob);
 
     var a = document.createElement('a');
-    a.href = url;
+    a.href     = url;
     a.download = currentHrGrade + '학년' + currentHrClass + '반_' + month + '_출결현황.csv';
     document.body.appendChild(a);
     a.click();
@@ -2424,7 +2501,7 @@ async function checkSubmitStatus() {
       badge.style.background = 'rgba(253,203,110,0.15)';
       badge.style.color = '#e17055';
       badge.style.borderLeft = '4px solid var(--orange-deep)';
-      badge.innerText = '📋 아직 제출된 출결이 없습니다.';
+      badge.innerText = '📋 ' + dateVal + ' 해당 날짜의 출결작성이 아직 없습니다.';
     }
   } catch (err) {
     badge.style.display = 'none';
@@ -2442,7 +2519,25 @@ async function instLogin() {
   if (!prog || !dayStr || !period || !currentDate || !pwd) return showToast("모든 항목을 입력하세요.");
   if (substituteMode && !document.getElementById('substitute-name').value.trim()) return showToast("대체 강사 이름을 입력하세요.");
 
-  if (!checkValidDate(true)) return;
+  // ⭐ B3: 날짜-요일 불일치 시 로그인 차단
+  var dateObj    = new Date(currentDate + 'T00:00:00');
+  var dayOfWeek  = dateObj.getDay();
+  var dayNames   = ['일', '월', '화', '수', '목', '금', '토'];
+  var dayMap     = { '일': 0, '월': 1, '화': 2, '수': 3, '목': 4, '금': 5, '토': 6 };
+  var normalizedDayStr = dayStr.replace('요일', '').trim();
+
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    showToast('⛔ 주말에는 출결 체크를 할 수 없습니다.');
+    return;
+  }
+  if (holidays2026.indexOf(currentDate) !== -1) {
+    showToast('⛔ 공휴일에는 출결 체크를 할 수 없습니다.');
+    return;
+  }
+  if (dayMap[normalizedDayStr] !== undefined && dayOfWeek !== dayMap[normalizedDayStr]) {
+    showToast('⛔ 날짜(' + dayNames[dayOfWeek] + '요일)와 수업 요일(' + normalizedDayStr + '요일)이 다릅니다. 날짜를 다시 확인하세요.');
+    return;
+  }
 
   showLoading(true);
   try {
@@ -2481,6 +2576,8 @@ async function instLogin() {
     renderInstList();
     document.getElementById('inst-activity-area').style.display = 'block';
     document.getElementById('inst-activity-content').value = result.activityContent || '';
+    // ⭐ 활동일지 기존 내용 있으면 경고 배너 숨김, 없으면 표시
+    toggleActivityWarning(result.activityContent || '');
 
   } catch (err) {
     showToast("❌ " + err.message);
