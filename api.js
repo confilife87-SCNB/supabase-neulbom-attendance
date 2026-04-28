@@ -204,10 +204,24 @@ const API = {
       contactMap[`${c.grade}_${c.class_num}_${c.name}`] = c.phone || '';
     });
 
-    // 활동일지 — targetPeriod 기준 정확한 매칭 + recorder 반환
-    const actLogs = await SUPABASE.select('activity_logs',
-      `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&order=created_at.desc`
-    );
+    // ⭐ 활동일지 — targetPeriod 기준 정확한 매칭 + recorder 반환
+    const actLogMatched = (() => {
+      if (!actLogs || actLogs.length === 0) return null;
+      const exact = actLogs.find(log =>
+        String(log.period || '').trim() === targetPeriod
+      );
+      if (exact) return exact;
+      const partial = actLogs.find(log =>
+        String(log.period || '')
+          .split(/[,\-·\s]+/)
+          .map(p => p.trim())
+          .includes(targetPeriod)
+      );
+      return partial || null;
+    })();
+
+    const activityContent  = actLogMatched ? actLogMatched.content   || '' : '';
+    const activityRecorder = actLogMatched ? actLogMatched.instructor || '' : '';
 
     const actLogMatched = (() => {
       if (!actLogs || actLogs.length === 0) return null;
