@@ -204,23 +204,30 @@ const API = {
       contactMap[`${c.grade}_${c.class_num}_${c.name}`] = c.phone || '';
     });
 
-    // ⭐ 활동일지 — targetPeriod 기준으로 정확한 row 매칭
-    const activityContent = (() => {
-      if (!actLogs || actLogs.length === 0) return '';
+    // 활동일지 — targetPeriod 기준 정확한 매칭 + recorder 반환
+    const actLogs = await SUPABASE.select('activity_logs',
+      `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&order=created_at.desc`
+    );
+
+    const actLogMatched = (() => {
+      if (!actLogs || actLogs.length === 0) return null;
       // 정확히 일치하는 period 먼저 찾기
       const exact = actLogs.find(log =>
         String(log.period || '').trim() === targetPeriod
       );
-      if (exact) return exact.content || '';
-      // 복합 교시 (예: "6교시-7교시") 안에 포함되는 경우
+      if (exact) return exact;
+      // 복합 교시 안에 포함되는 경우
       const partial = actLogs.find(log =>
         String(log.period || '')
           .split(/[,\-·\s]+/)
           .map(p => p.trim())
           .includes(targetPeriod)
       );
-      return partial ? partial.content || '' : '';
+      return partial || null;
     })();
+
+    const activityContent  = actLogMatched ? actLogMatched.content   || '' : '';
+    const activityRecorder = actLogMatched ? actLogMatched.instructor || '' : '';
 
     // 학생 목록 구성
     const seen   = {};
@@ -247,7 +254,7 @@ const API = {
       return a.name.localeCompare(b.name, 'ko-KR');
     });
 
-    return { students: result, existing, activityContent };
+    return { students: result, existing, activityContent, activityRecorder };
   },
 
   async saveAttendanceData(selectedDate, progName, day, period, attendanceList, isCanceled, substituteInstructor) {
