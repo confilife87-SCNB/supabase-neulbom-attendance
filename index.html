@@ -4912,11 +4912,21 @@ async function generateAttendancePDF(month, targetProg) {
     }
 
     // 4. 출결기록 정리
-    const attendByProg = {};
-    const datesByProg = {};
-    const reasonsByProg = {};
+    const attendByProg     = {};
+    const datesByProg      = {};
+    const reasonsByProg    = {};
+    const substitutesByProg = {}; // ⭐ 대체강사 날짜별 기록
 
     attendanceRaw.forEach(r => {
+      // ⭐ 대체강사 기록 수집
+      if (r.recorder && r.recorder.includes('(대체강사)')) {
+        if (!substitutesByProg[r.program]) substitutesByProg[r.program] = [];
+        const alreadyAdded = substitutesByProg[r.program].some(s => s.date === r.date);
+        if (!alreadyAdded) {
+          substitutesByProg[r.program].push({ date: r.date, recorder: r.recorder });
+        }
+      }
+
       if (!attendByProg[r.program]) attendByProg[r.program] = {};
       if (!attendByProg[r.program][r.date]) attendByProg[r.program][r.date] = {};
       const key = `${r.grade}_${r.class_num}_${r.name}`;
@@ -5081,6 +5091,11 @@ async function generateAttendancePDF(month, targetProg) {
           reasons.forEach(r => {
             if (r.reason) remarkParts.push(`${parseInt(r.date.split('-')[2])}일 ${r.status}-${r.reason}`);
           });
+          // ⭐ 대체강사 날짜별 기록 표시
+          const subRecords = (substitutesByProg[progName] || []);
+          subRecords.forEach(sub => {
+            remarkParts.push(`${parseInt(sub.date.split('-')[2])}일 대체:${sub.recorder.replace('(대체강사)', '')}`);
+          });
           html += `<td style="font-size:${remarkFs}pt; text-align:left">${escapeHtml(remarkParts.join(', '))}</td>`;
 
         } else {
@@ -5091,13 +5106,27 @@ async function generateAttendancePDF(month, targetProg) {
         html += `</tr>`;
       }
 
+      // ⭐ 대체강사 날짜별 (서명) 표시
+      const subList = substitutesByProg[progName] || [];
+      const subDateMap = {};
+      subList.forEach(sub => {
+        const dayNum = parseInt(sub.date.split('-')[2]);
+        subDateMap[dayNum] = sub.recorder.replace('(대체강사)', '');
+      });
+
       // 강사 확인 행
       html += `<tr class="footer-row" style="height:${ATT_ROW_H}">`;
       html += `<td></td><td></td>`;
       html += `<td style="font-size:${bodyFs}pt; font-weight:bold">강사</td>`;
       html += `<td style="font-size:${bodyFs}pt; font-weight:bold">확인</td>`;
       for (let i = 0; i < 10; i++) {
-        html += `<td style="font-size:5pt; color:#999">(서명)</td>`;
+        const dateNum = i < classDates.length ? parseInt(classDates[i].split('-')[2]) : null;
+        const subName = dateNum && subDateMap[dateNum] ? subDateMap[dateNum] : null;
+        if (subName) {
+          html += `<td style="font-size:4.5pt; color:#e17055;">${escapeHtml(subName)}<br>(대체)</td>`;
+        } else {
+          html += `<td style="font-size:5pt; color:#999">(서명)</td>`;
+        }
       }
       html += `<td></td><td></td>`;
       html += `</tr>`;
