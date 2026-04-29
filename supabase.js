@@ -23,8 +23,8 @@ const SUPABASE = {
     return key;
   },
 
-  // ── 핵심 통신 함수 ──
-  async query(method, table, body = null, params = '') {
+// ✅ 수정 코드
+  async query(method, table, body = null, params = '', extraHeaders = {}) {
     const key = this.getKey();
     if (!key) throw new Error('세션이 만료되었습니다. 새로고침 후 다시 시도해주세요.');
 
@@ -35,13 +35,18 @@ const SUPABASE = {
       ? key
       : `Bearer ${key}`;
 
+    const defaultPrefer = (method === 'POST' || method === 'PATCH' || method === 'DELETE')
+      ? 'return=representation'
+      : '';
+
     const res = await fetch(url, {
       method,
       headers: {
-        'apikey': key,
-        'Authorization': authHeader,
-        'Content-Type': 'application/json',
-        'Prefer': (method === 'POST' || method === 'PATCH' || method === 'DELETE') ? 'return=representation' : ''
+        'apikey':          key,
+        'Authorization':   authHeader,
+        'Content-Type':    'application/json',
+        'Prefer':          defaultPrefer,
+        ...extraHeaders    // ← 커스텀 헤더 병합 (extraHeaders의 Prefer가 있으면 덮어씀)
       },
       body: body ? JSON.stringify(body) : null
     });
