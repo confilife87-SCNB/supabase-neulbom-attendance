@@ -2696,7 +2696,8 @@ async function instLogin() {
         grade: s.grade, classNum: s.classNum, name: s.name,
         permNote: s.permNote, dailyNote: s.dailyNote,
         attendanceRate: s.attendanceRate, contact: s.contact || '',
-        status: finalStatus, reason: finalReason
+        status: finalStatus, reason: finalReason,
+        classNotice: s.classNotice || ''
       };
     });
 
