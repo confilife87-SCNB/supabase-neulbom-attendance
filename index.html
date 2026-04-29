@@ -2564,6 +2564,13 @@ async function loadClassNotice() {
         peSel.appendChild(opt);
       });
       peSel.disabled = false;
+
+      // ⭐ 교시가 1개뿐이면 자동 선택 후 checkSubmitStatus() 즉시 호출
+      // (사용자가 교시를 따로 선택 안 해도 대체강사 자동 복원 보장)
+      if (programData[p][d].length === 1) {
+        peSel.value = programData[p][d][0];
+        checkSubmitStatus();
+      }
     }
 
     // 날짜·요일 불일치는 알림창 대신 안내 배너로 표시합니다.
