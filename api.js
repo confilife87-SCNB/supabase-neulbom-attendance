@@ -1125,17 +1125,16 @@ _toLocalDateStr(d) {
       late_submit_time: isLate ? lateTime : ''
     };
 
+// ✅ 수정 코드
     try {
       // upsert: on_conflict 컬럼 지정 + merge-duplicates 헤더
+      // (1단계에서 submissions UNIQUE 제약이 완전한 형태로 변경됐으므로 정상 작동)
       await SUPABASE.query(
-        `/rest/v1/submissions?on_conflict=date,program,period`,
+        'submissions',
+        [insertRow],
+        '?on_conflict=date,program,period',
         {
-          method: 'POST',
-          headers: {
-            'Prefer':       'resolution=merge-duplicates,return=minimal',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify([insertRow])
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
         }
       );
       return true;
