@@ -1732,7 +1732,11 @@ document.addEventListener("DOMContentLoaded", async function() {
                 updatePeriods();
                 setTimeout(function() {
                   var peSel = document.getElementById('period-select');
-                  if (last.period) peSel.value = last.period;
+                  if (last.period) {
+                    peSel.value = last.period;
+                    // ⭐ period까지 모두 복원된 후 checkSubmitStatus() 명시적 호출
+                    checkSubmitStatus();
+                  }
                 }, 100);
               }
             }, 100);
