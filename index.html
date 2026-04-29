@@ -5446,7 +5446,16 @@ async function generateActivityPDF(month, targetProg) {
     const ACT_ROW_H      = '14.2mm';
     const ACT_HEADER_H   = '10mm';
 
-    html += `<table class="act-table">`;
+    html += `<table class="act-table">
+      <colgroup>
+        <col style="width:5%">
+        <col style="width:12%">
+        <col style="width:9%">
+        <col style="width:9%">
+        <col style="width:9%">
+        <col style="width:40%">
+        <col style="width:16%">
+      </colgroup>`;
     html += `<tr style="height:${ACT_HEADER_H}">
       <th>순</th>
       <th>날짜(요일)</th>
