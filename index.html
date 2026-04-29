@@ -2693,10 +2693,14 @@ async function instLogin() {
     currentPeriod = period;
     saveLastLogin(prog, dayStr, period);
 
-    // ⭐ 로그인 성공 시점에 대체강사명 캡처 (저장 시점까지 안전하게 보관)
-    capturedSubstituteName = (substituteMode && document.getElementById('substitute-name').value.trim())
-      ? document.getElementById('substitute-name').value.trim()
-      : '';
+    // ⭐ 대체강사명 캡처: substituteMode 또는 체크박스 직접 확인 (둘 중 하나라도 true면 캡처)
+    var _loginSubChecked = document.getElementById('substitute-check')?.checked || false;
+    var _loginSubName    = (document.getElementById('substitute-name')?.value || '').trim();
+    capturedSubstituteName = (_loginSubChecked && _loginSubName) ? _loginSubName : '';
+    console.log('🔵 instLogin 캡처 - substituteMode:', substituteMode,
+                'checked:', _loginSubChecked,
+                'name:', _loginSubName,
+                'captured:', capturedSubstituteName);
 
     const result = await API.getInstDashboardData(prog, dayStr, period, currentDate);
     studentsData = result.students.map(function(s) {
@@ -2739,22 +2743,19 @@ async function instLogin() {
     var subArea  = document.getElementById('substitute-area');
 
     if (savedRecorder) {
-      // DB에 대체강사 기록이 있으면 → 복원
       if (subCheck) subCheck.checked = true;
       if (subInput) subInput.value = savedRecorder;
       if (subArea) subArea.classList.add('show');
       substituteMode = true;
       capturedSubstituteName = savedRecorder;
-      console.log('✅ 대체강사 정보 DB 복원:', savedRecorder);
     } else if (!capturedSubstituteName) {
-      // ⭐ DB 기록도 없고 사용자가 직접 입력한 것도 없을 때만 초기화
-      // (사용자가 로그인 화면에서 직접 입력한 대체강사명은 건드리지 않음)
+      // DB 기록도 없고 사용자 직접 입력도 없을 때만 초기화
       if (subCheck) subCheck.checked = false;
       if (subInput) subInput.value = '';
       if (subArea) subArea.classList.remove('show');
       substituteMode = false;
     }
-    // capturedSubstituteName이 있으면 (사용자 직접 입력) → 아무것도 건드리지 않음
+    // capturedSubstituteName 있으면 → 건드리지 않음
 
     
     // ⭐ 활동일지 기존 내용 있으면 경고 배너 숨김, 없으면 표시
