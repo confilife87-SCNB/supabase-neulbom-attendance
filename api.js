@@ -341,6 +341,7 @@ _toLocalDateStr(d) {
     return { success: true, alerts, summary };
   },
 
+// ✅ 수정 코드
   async saveActivityLog(selectedDate, progName, day, periods, activityContent, substituteInstructor) {
     // ⭐ B4 수정: periodList 정규화 강화
     const periodList = String(periods || '')
@@ -364,8 +365,24 @@ _toLocalDateStr(d) {
     const startTime = PERIOD_TIME[firstPeriod]?.start || '';
     const endTime   = PERIOD_TIME[lastPeriod]?.end   || '';
     const instructor = await this._getInstructor(progName);
-    const recorder   = substituteInstructor ? substituteInstructor : instructor;
-    const remark     = substituteInstructor ? `${substituteInstructor}(대체)` : '';
+
+    // ⭐ 대체강사 자동 확인:
+    // substituteInstructor가 없으면 기존 출결 기록의 recorder에서 대체강사명 추출
+    let resolvedSubstitute = substituteInstructor || '';
+    if (!resolvedSubstitute) {
+      const attRows = await SUPABASE.select('attendance',
+        `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&period=eq.${encodeURIComponent(firstPeriod)}&select=recorder&limit=1`
+      );
+      if (attRows.length > 0 && attRows[0].recorder) {
+        const match = attRows[0].recorder.match(/^(.+?)$대체강사$$/);
+        if (match) {
+          resolvedSubstitute = match[1].trim();
+        }
+      }
+    }
+
+    const recorder = resolvedSubstitute ? resolvedSubstitute : instructor;
+    const remark   = resolvedSubstitute ? `${resolvedSubstitute}(대체)` : '';
     const month      = `${new Date(selectedDate + 'T00:00:00').getMonth() + 1}월`;
     const dateObj    = new Date(selectedDate + 'T00:00:00');
     const dayNames   = ['일', '월', '화', '수', '목', '금', '토'];
