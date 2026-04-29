@@ -1221,6 +1221,7 @@
   let programData = {};
   let hrData = {};
   let studentsData = [];
+  let isInitialDataLoaded = false; 
   let hrStudentsData = [];
   let adminDailyData = null;
   let adminMultiData = null;
@@ -1542,6 +1543,9 @@
       return true;
     }
 
+    // ← 초기 데이터 로딩 전에는 검증 통과 (holidays2026 미완성 상태 방지)
+    if (!isInitialDataLoaded) return true;
+
     var dateObj = new Date(dateVal + 'T00:00:00');
     var dayOfWeek = dateObj.getDay();
     var dayNames = ['일','월','화','수','목','금','토'];
@@ -1681,9 +1685,9 @@ document.addEventListener("DOMContentLoaded", async function() {
   } catch (err) {
     showToast("❌ 초기화 실패: " + err.message);
   } finally {
+    isInitialDataLoaded = true;  // ← 추가
     showLoading(false);
   }
-
   window.addEventListener('beforeunload', function(e) {
     if (!isSaved) { e.preventDefault(); e.returnValue = ''; }
   });
