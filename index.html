@@ -1681,13 +1681,16 @@ document.addEventListener("DOMContentLoaded", async function() {
       });
     }
 
-    // 4. 마지막 로그인 복원
-    restoreLastLogin();
+    // 4. 마지막 로그인 복원 — finally 이후 충분한 딜레이 보장
+    // (getInitialData 완료 + DOM 렌더링 완료 후 실행)
+    setTimeout(function() {
+      restoreLastLogin();
+    }, 300);
 
   } catch (err) {
     showToast("❌ 초기화 실패: " + err.message);
   } finally {
-    isInitialDataLoaded = true;  // ← 추가
+    isInitialDataLoaded = true;
     showLoading(false);
   }
   window.addEventListener('beforeunload', function(e) {
