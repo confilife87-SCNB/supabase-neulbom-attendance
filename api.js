@@ -1006,10 +1006,14 @@ _toLocalDateStr(d) {
     return true;
   },
 
-  async getActivityLogList(month, progName) {
+  async getActivityLogList(month, progName, targetDate) {
     let params = `?month=eq.${encodeURIComponent(month)}`;
     if (progName && progName !== '전체') {
       params += `&program=eq.${encodeURIComponent(progName)}`;
+    }
+    // ⭐ 날짜 필터 추가
+    if (targetDate && targetDate.trim()) {
+      params += `&date=eq.${targetDate.trim()}`;
     }
     const data = await SUPABASE.select('activity_logs', params + '&order=program.asc,date.asc');
     return data.map((item, idx) => ({
