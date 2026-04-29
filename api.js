@@ -1047,22 +1047,22 @@ _toLocalDateStr(d) {
     return name;
   },
 
-  // ⭐ _updateSubmission 전면 재작성 (B2 + AB4 + AB5 수정)
+  // ⭐ _updateSubmission 전면 재작성 (B2 + AB4 + AB5 + 7교시 race condition fix)
   async _updateSubmission(date, program, period, day, attendStatus, activityStatus, instructor, remark) {
-    const targetDate      = String(date     || '').trim();
-    const targetProgram   = String(program  || '').trim();
-    const targetPeriod    = String(period   || '').trim();
-    const targetDay       = String(day      || '').trim();
+    const targetDate       = String(date     || '').trim();
+    const targetProgram    = String(program  || '').trim();
+    const targetPeriod     = String(period   || '').trim();
+    const targetDay        = String(day      || '').trim();
     const targetInstructor = String(instructor || '').trim();
-    const targetRemark    = String(remark   || '').trim();
+    const targetRemark     = String(remark   || '').trim();
 
     // ⭐ period 없으면 건너뜀 (AB4 수정)
     if (!targetDate || !targetProgram || !targetPeriod) return;
 
-    const today   = new Date().toISOString().slice(0, 10);
-    const isLate  = targetDate < today;
-    const month   = `${new Date(targetDate + 'T00:00:00').getMonth() + 1}월`;
-    const nowTime = new Date().toTimeString().slice(0, 8);
+    const today    = new Date().toISOString().slice(0, 10);
+    const isLate   = targetDate < today;
+    const month    = `${new Date(targetDate + 'T00:00:00').getMonth() + 1}월`;
+    const nowTime  = new Date().toTimeString().slice(0, 8);
     const lateTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
 
     const params =
@@ -1072,17 +1072,17 @@ _toLocalDateStr(d) {
 
     const existing = await SUPABASE.select('submissions', params + '&select=*');
 
+    // ⭐ Case A: 기존 row 있음 → 부분 UPDATE (기존 로직 유지)
     if (existing && existing.length > 0) {
       const keep       = existing[0];
       const updateData = {
-        day:         targetDay        || keep.day    || '',
+        day:         targetDay || keep.day || '',
         month,
         submit_time: nowTime
       };
 
-      if (targetInstructor)                   updateData.instructor = targetInstructor;
-      // ⭐ AB5 수정: undefined면 건드리지 않음
-      if (attendStatus  !== undefined && attendStatus  !== null) {
+      if (targetInstructor) updateData.instructor = targetInstructor;
+      if (attendStatus   !== undefined && attendStatus   !== null) {
         updateData.attend_status = attendStatus;
       }
       if (activityStatus !== undefined && activityStatus !== null) {
@@ -1092,7 +1092,6 @@ _toLocalDateStr(d) {
         updateData.late_submit      = '✅ 소급입력';
         updateData.late_submit_time = lateTime;
       }
-      // ⭐ F2: remark 업데이트
       if (targetRemark) updateData.remark = targetRemark;
 
       await SUPABASE.update('submissions', updateData, `?id=eq.${keep.id}`);
@@ -1107,15 +1106,18 @@ _toLocalDateStr(d) {
       return true;
     }
 
-    // 신규 삽입
+    // ⭐ Case B: 기존 row 없음 → UPSERT (race condition 대응)
+    // 일반 INSERT는 select와 INSERT 사이에 다른 요청이 끼어들 경우
+    // unique 제약(date+program+period)에 걸려 409 Conflict 발생.
+    // on_conflict + Prefer: resolution=merge-duplicates 로 충돌 시 자동 UPDATE 처리.
     const insertRow = {
       date:             targetDate,
       day:              targetDay,
       period:           targetPeriod,
       program:          targetProgram,
       instructor:       targetInstructor,
-      attend_status:    attendStatus    !== undefined ? attendStatus    : '❌ 미제출',
-      activity_status:  activityStatus  !== undefined ? activityStatus  : '❌ 미제출',
+      attend_status:    attendStatus    !== undefined && attendStatus    !== null ? attendStatus    : '❌ 미제출',
+      activity_status:  activityStatus  !== undefined && activityStatus  !== null ? activityStatus  : '❌ 미제출',
       submit_time:      nowTime,
       month,
       remark:           targetRemark,
@@ -1124,15 +1126,26 @@ _toLocalDateStr(d) {
     };
 
     try {
-      await SUPABASE.insert('submissions', [insertRow]);
+      // upsert: on_conflict 컬럼 지정 + merge-duplicates 헤더
+      await SUPABASE.query(
+        `/rest/v1/submissions?on_conflict=date,program,period`,
+        {
+          method: 'POST',
+          headers: {
+            'Prefer':       'resolution=merge-duplicates,return=minimal',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify([insertRow])
+        }
+      );
       return true;
     } catch (err) {
-      // INSERT 실패 시 재조회 후 UPDATE (race condition 대응)
+      // 마지막 안전망: 그래도 실패하면 재조회 후 UPDATE
       const retry = await SUPABASE.select('submissions', params + '&select=*');
       if (retry && retry.length > 0) {
         const retryUpdate = { day: targetDay || '', month, submit_time: nowTime };
         if (targetInstructor) retryUpdate.instructor = targetInstructor;
-        if (attendStatus  !== undefined && attendStatus  !== null) retryUpdate.attend_status   = attendStatus;
+        if (attendStatus   !== undefined && attendStatus   !== null) retryUpdate.attend_status   = attendStatus;
         if (activityStatus !== undefined && activityStatus !== null) retryUpdate.activity_status = activityStatus;
         if (isLate && !retry[0].late_submit) {
           retryUpdate.late_submit      = '✅ 소급입력';
@@ -1145,6 +1158,7 @@ _toLocalDateStr(d) {
       throw err;
     }
   },
+
 
   _normalizeDay(day) {
     return String(day || '').replace('요일', '').trim();
