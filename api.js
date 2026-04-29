@@ -533,7 +533,13 @@ _toLocalDateStr(d) {
       });
 
     // ⭐ AB8 수정: records도 반환 (날짜별 상세 표에 필요)
-    return { records: data, studentList };
+    // prog 필드 통일 (raw DB는 r.program, UI에서는 r.prog 참조)
+    return {
+      records: data.map(function(r) {
+        return Object.assign({}, r, { prog: r.program });
+      }),
+      studentList
+    };
   },
 
   async saveClassNotice(grade, classNum, notice) {
