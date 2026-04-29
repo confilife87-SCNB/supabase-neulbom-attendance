@@ -1734,8 +1734,10 @@ document.addEventListener("DOMContentLoaded", async function() {
                   var peSel = document.getElementById('period-select');
                   if (last.period) {
                     peSel.value = last.period;
-                    // ⭐ period까지 모두 복원된 후 checkSubmitStatus() 명시적 호출
-                    checkSubmitStatus();
+                    // ⭐ period까지 완전히 설정된 후 충분한 시간을 두고 호출
+                    setTimeout(function() {
+                      checkSubmitStatus();
+                    }, 300);
                   }
                 }, 100);
               }
