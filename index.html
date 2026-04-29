@@ -2468,12 +2468,12 @@ async function loadHrMonthlyData() {
     // 통합 프리셋 6개
     reasonPresets.forEach(function(r) {
       var isActive = (hrModalReason === r) ? 'background:var(--blue-deep); color:white; border-color:var(--blue-deep);' : '';
-      html += '<button class="btn-preset" style="' + isActive + '" onclick="setHrReason(\'' + escapeHtml(r).replace(/'/g, "\\'") + '\')">' + escapeHtml(r) + '</button>';
+      html += '<button class="btn-preset" style="' + isActive + '" onclick="setHrReason(\'' + escapeJs(r) + '\')">' + escapeHtml(r) + '</button>';
     });
     // 커스텀 프리셋
     hrCustomPresets.forEach(function(p, idx) {
       var isActive = (hrModalReason === p) ? 'background:var(--blue-deep); color:white; border-color:var(--blue-deep);' : '';
-      html += '<button class="btn-preset" style="position:relative;' + isActive + '" onclick="setHrReason(\'' + escapeHtml(p).replace(/'/g, "\\'") + '\')">' + escapeHtml(p) + '<span onclick="event.stopPropagation(); removeCustomPreset(' + idx + ');" style="position:absolute; top:2px; right:6px; font-size:0.7rem; color:' + (hrModalReason === p ? 'white' : 'var(--red-deep)') + '; cursor:pointer;">✕</span></button>';
+      html += '<button class="btn-preset" style="position:relative;' + isActive + '" onclick="setHrReason(\'' + escapeJs(p) + '\')">' + escapeHtml(p) + '<span onclick="event.stopPropagation(); removeCustomPreset(' + idx + ');" style="position:absolute; top:2px; right:6px; font-size:0.7rem; color:' + (hrModalReason === p ? 'white' : 'var(--red-deep)') + '; cursor:pointer;">✕</span></button>';
     });
     grid.innerHTML = html;
   }
@@ -2883,7 +2883,7 @@ async function instLogin() {
         reasonHtml = '<div class="reason-area show"><div class="reason-chips">';
         reasonPresets.forEach(function(r) {
           var isActive = (s.reason === r) ? ' active' : '';
-          reasonHtml += '<span class="chip' + isActive + '" onclick="setReason(' + idx + ',\'' + escapeHtml(r).replace(/'/g, "\\'") + '\')">' + escapeHtml(r) + '</span>';
+          reasonHtml += '<span class="chip' + isActive + '" onclick="setReason(' + idx + ',\'' + escapeJs(r) + '\')">' + escapeHtml(r) + '</span>';
         });
         reasonHtml += '</div>';
         reasonHtml += '<input type="text" id="reason-input-' + idx + '" value="' + escapeHtml(s.reason) + '" placeholder="직접 입력 (선택사항)" style="margin-top:6px;" onchange="studentsData[' + idx + '].reason=this.value">';
@@ -4364,10 +4364,10 @@ async function loadActivityLogList() {
       }
 
       html += '  </div>';
-      html += '  <button class="btn-edit" onclick="openActivityModal(\'' + item._id + '\', \'' +
-              escapeHtml(item.prog).replace(/'/g, "\\'") + '\', \'' +
-              dateDisplay.replace(/'/g, "\\'") + '\', \'' +
-              escapeHtml(item.content).replace(/'/g, "\\'") + '\')">수정</button>';
+      html += '  <button class="btn-edit" onclick="openActivityModal(\'' + escapeJs(item._id) + '\', \'' +
+              escapeJs(item.prog) + '\', \'' +
+              escapeJs(dateDisplay) + '\', \'' +
+              escapeJs(item.content) + '\')">수정</button>';
       html += '</div>';
     });
 
@@ -4703,7 +4703,7 @@ async function loadAdminStudentList() {
         ? 'background:var(--purple-deep); color:white; border-color:var(--purple-deep);'
         : '';
       html += '<button class="btn-preset" style="' + isActive + '" ' +
-              'onclick="setAdminManageReason(\'' + escapeHtml(r).replace(/'/g, "\\'") + '\')">' +
+              'onclick="setAdminManageReason(\'' + escapeJs(r) + '\')">' +
               escapeHtml(r) + '</button>';
     });
     grid.innerHTML = html;
