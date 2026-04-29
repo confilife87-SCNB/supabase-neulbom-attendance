@@ -37,8 +37,9 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = e.request.url;
 
-  // GAS API 호출 → 항상 네트워크 (캐시 안 함)
-  if (url.includes('script.google.com')) {
+  // API 호출 → 항상 네트워크 (캐시 안 함)
+  // GAS 레거시 + Supabase 모두 캐시 제외
+  if (url.includes('script.google.com') || url.includes('supabase.co')) {
     e.respondWith(
       fetch(e.request).catch(() =>
         new Response(
