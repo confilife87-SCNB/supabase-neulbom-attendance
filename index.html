@@ -872,7 +872,7 @@
         <!-- 활동일지 수정 (신규) -->
         <div id="edit-activity-area" style="display:none;">
           <div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:12px;">※ 활동일지 내용을 조회하고 수정할 수 있습니다.</div>
-          <div class="filter-bar" style="margin-bottom:12px;">
+          <div class="filter-bar" style="margin-bottom:8px;">
             <select id="admin-activity-month-filter" onchange="loadActivityLogList()" style="width:auto; min-width:80px;">
               <option value="3월">3월</option>
               <option value="4월">4월</option>
@@ -887,6 +887,21 @@
             </select>
             <select id="admin-activity-prog-filter" onchange="loadActivityLogList()" style="flex:1;">
               <option value="전체">전체 프로그램</option>
+            </select>
+          </div>
+          <!-- ⭐ 날짜 필터 + 정렬 옵션 추가 -->
+          <div class="filter-bar" style="margin-bottom:12px;">
+            <input type="date" id="admin-activity-date-filter"
+              onchange="loadActivityLogList()"
+              style="flex:1;"
+              placeholder="날짜 필터 (선택사항)">
+            <button class="btn-back" onclick="clearActivityDateFilter()"
+              style="white-space:nowrap; font-size:0.78rem;">
+              날짜 초기화
+            </button>
+            <select id="admin-activity-sort" onchange="renderActivityLogList()" style="width:auto; min-width:90px;">
+              <option value="asc">날짜 오름차순</option>
+              <option value="desc">날짜 내림차순</option>
             </select>
           </div>
           <div id="admin-activity-records"></div>
@@ -4314,11 +4329,12 @@ async function createOrUpdateActivityDoc() {
 
 async function loadActivityLogList() {
   var month = document.getElementById('admin-activity-month-filter').value;
-  var prog = document.getElementById('admin-activity-prog-filter').value;
+  var prog  = document.getElementById('admin-activity-prog-filter').value;
+  var date  = document.getElementById('admin-activity-date-filter')?.value || '';
   showLoading(true);
 
   try {
-    const data = await API.getActivityLogList(month, prog);
+    const data = await API.getActivityLogList(month, prog, date);
     activityLogData = data || [];
     renderActivityLogList();
   } catch (err) {
@@ -4328,6 +4344,12 @@ async function loadActivityLogList() {
   }
 }
 
+  function clearActivityDateFilter() {
+    var dateInput = document.getElementById('admin-activity-date-filter');
+    if (dateInput) dateInput.value = '';
+    loadActivityLogList();
+  }
+
   function renderActivityLogList() {
     var listDiv = document.getElementById('admin-activity-records');
 
@@ -4336,9 +4358,16 @@ async function loadActivityLogList() {
       return;
     }
 
+    // ⭐ 정렬 적용
+    var sortOrder = document.getElementById('admin-activity-sort')?.value || 'asc';
+    var sorted = activityLogData.slice().sort(function(a, b) {
+      var cmp = a.date.localeCompare(b.date) || a.prog.localeCompare(b.prog, 'ko-KR');
+      return sortOrder === 'desc' ? -cmp : cmp;
+    });
+
     var html = '';
 
-    activityLogData.forEach(function(item) {
+    sorted.forEach(function(item) {
       var dateDisplay = parseInt(item.date.split('-')[2]) + '(' + item.day + ')';
 
       html += '<div class="record-card">';
