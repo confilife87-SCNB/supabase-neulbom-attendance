@@ -2796,26 +2796,6 @@ async function instLogin() {
       else if (s.status === '결석') a++;
     });
 
-    // 학급 공지사항 배너 표시 (학급별 첫 번째 학생에서 추출)
-    var noticeShown = {};
-    studentsData.forEach(function(s) {
-      if (s.classNotice && s.classNotice.trim() !== '') {
-        var key = s.grade + '_' + s.classNum;
-        if (!noticeShown[key]) {
-          noticeShown[key] = s.classNotice;
-        }
-      }
-    });
-
-    // 공지 배너 렌더링
-    Object.keys(noticeShown).forEach(function(key) {
-      var parts = key.split('_');
-      var noticeBanner = document.createElement('div');
-      noticeBanner.style.cssText = 'background:rgba(108,92,231,0.08); border-left:4px solid var(--purple-deep); padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:12px; font-size:0.88rem; font-weight:700; color:var(--purple-deep);';
-      noticeBanner.innerHTML = '📢 ' + escapeHtml(parts[0]) + '-' + escapeHtml(parts[1]) + '반 담임 공지: ' + escapeHtml(noticeShown[key]);
-      listDiv.appendChild(noticeBanner);
-    });
-
     studentsData.forEach(function(s, idx) {
 
       if (search && s.name.indexOf(search) === -1) return;
@@ -2877,14 +2857,24 @@ async function instLogin() {
       var statusClass = (s.status !== '출석') ? ' status-' + s.status : '';
       var dailyClass = hasDailyNote ? ' has-daily-note' : '';
       var card = document.createElement('div');
-      card.className = 'student-card' + compactClass + statusClass + dailyClass;
-      card.innerHTML =
-        '<div class="student-name">' +
-          '<span>🧑‍🎓 ' + escapeHtml(s.grade) + '-' + escapeHtml(s.classNum) + ' ' + escapeHtml(s.name) +
-          (s.contact ? ' <span style="font-size:0.75rem; color:var(--blue-deep); font-weight:600; cursor:pointer;" onclick="handleContact(\'' + escapeHtml(s.contact).replace(/'/g, "\\'") + '\')">📞' + escapeHtml(s.contact) + '</span>' : '') +
-          '</span>' +
-          '<span class="badge ' + rateBadge + '">' + s.attendanceRate + '%</span>' +
-        '</div>' +
+card.innerHTML =
+  '<div class="student-name">' +
+    '<span>🧑‍🎓 ' + escapeHtml(s.grade) + '-' + escapeHtml(s.classNum) + ' ' + escapeHtml(s.name) +
+    (s.contact ? ' <span style="font-size:0.75rem; color:var(--blue-deep); font-weight:600; cursor:pointer;" onclick="handleContact(\'' + escapeHtml(s.contact).replace(/'/g, "\\'") + '\')">📞' + escapeHtml(s.contact) + '</span>' : '') +
+    '</span>' +
+    '<span class="badge ' + rateBadge + '">' + s.attendanceRate + '%</span>' +
+  '</div>' +
+  (s.classNotice && s.classNotice.trim() !== '' ? '<div class="class-notice-individual" style="background:rgba(108,92,231,0.08); border-left:3px solid var(--purple-deep); padding:6px 10px; border-radius:var(--radius-sm); margin:6px 0; font-size:0.82rem; font-weight:600; color:var(--purple-deep);">📢 담임 공지: ' + escapeHtml(s.classNotice) + '</div>' : '') +
+  noteHtml +
+  '<div class="btn-group">' +
+    '<button class="btn-status ' + (s.status==='출석'?'sel-출석':'') + '" onclick="setInstSt(' + idx + ',\'출석\')">출석</button>' +
+    '<button class="btn-status ' + (s.status==='지각'?'sel-지각':'') + '" onclick="setInstSt(' + idx + ',\'지각\')">지각</button>' +
+    '<button class="btn-status ' + (s.status==='조퇴'?'sel-조퇴':'') + '" onclick="setInstSt(' + idx + ',\'조퇴\')">조퇴</button>' +
+    '<button class="btn-status ' + (s.status==='결석'?'sel-결석':'') + '" onclick="setInstSt(' + idx + ',\'결석\')">결석</button>' +
+  '</div>' +
+  reasonHtml;
+
+
         noteHtml +
         '<div class="btn-group">' +
           '<button class="btn-status ' + (s.status==='출석'?'sel-출석':'') + '" onclick="setInstSt(' + idx + ',\'출석\')">출석</button>' +
