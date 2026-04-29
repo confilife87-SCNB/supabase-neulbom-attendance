@@ -2910,11 +2910,16 @@ async function instLogin() {
 
   // ⭐ 기억4: 저장 완료 요약 화면
 async function confirmInstSave() {
+  // ⭐ 값을 confirm 다이얼로그 전에 미리 캡처 (DOM 리셋 방지)
+  var _subChecked = document.getElementById('substitute-check')?.checked || false;
+  var _subNameVal = (document.getElementById('substitute-name')?.value || '').trim();
+  var _actContentVal = (document.getElementById('inst-activity-content')?.value || '').trim();
+
   if (!confirm("출결 데이터와 활동일지를 저장하시겠습니까?")) return;
   showLoading(true);
 
-  var subName = substituteMode ? document.getElementById('substitute-name').value.trim() : '';
-  var actContent = document.getElementById('inst-activity-content').value.trim();
+  var subName = _subChecked ? _subNameVal : '';
+  var actContent = _actContentVal;
 
   try {
     // 1. 출결을 먼저 저장합니다.
