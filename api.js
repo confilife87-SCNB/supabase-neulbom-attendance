@@ -374,7 +374,7 @@ _toLocalDateStr(d) {
         `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&period=eq.${encodeURIComponent(firstPeriod)}&select=recorder&limit=1`
       );
       if (attRows.length > 0 && attRows[0].recorder) {
-        const match = attRows[0].recorder.match(/^(.+?)$대체강사$$/);
+        const match = attRows[0].recorder.match(/^(.+?)\(대체강사\)$/);
         if (match) {
           resolvedSubstitute = match[1].trim();
         }
