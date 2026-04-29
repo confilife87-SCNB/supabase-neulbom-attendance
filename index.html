@@ -2927,17 +2927,26 @@ async function instLogin() {
   }
 
   // ⭐ 기억4: 저장 완료 요약 화면
-async function confirmInstSave() {
-  // ⭐ 값을 confirm 다이얼로그 전에 미리 캡처 (DOM 리셋 방지)
-  var _subChecked = document.getElementById('substitute-check')?.checked || false;
-  var _subNameVal = (document.getElementById('substitute-name')?.value || '').trim();
-  var _actContentVal = (document.getElementById('inst-activity-content')?.value || '').trim();
+  async function confirmInstSave() {
+    // ⭐ DOM 값 캡처 (confirm 전)
+    var _subChecked  = document.getElementById('substitute-check')?.checked || false;
+    var _subNameVal  = (document.getElementById('substitute-name')?.value || '').trim();
+    var _actContentVal = (document.getElementById('inst-activity-content')?.value || '').trim();
 
-  if (!confirm("출결 데이터와 활동일지를 저장하시겠습니까?")) return;
-  showLoading(true);
+    if (!confirm("출결 데이터와 활동일지를 저장하시겠습니까?")) return;
+    showLoading(true);
 
-  var subName = _subChecked ? _subNameVal : '';
-  var actContent = _actContentVal;
+    // ⭐ 대체강사명 결정 우선순위:
+    // 1순위: DOM에서 직접 입력된 값 (체크 + 이름 있음)
+    // 2순위: 로그인 시점에 캡처된 값 (DOM이 초기화됐어도 안전)
+    // 3순위: 없음 (일반 강사)
+    var subName = '';
+    if (_subChecked && _subNameVal) {
+      subName = _subNameVal;                          // 1순위
+    } else if (capturedSubstituteName) {
+      subName = capturedSubstituteName;               // 2순위
+    }
+    var actContent = _actContentVal;
 
   try {
     // 1. 출결을 먼저 저장합니다.
