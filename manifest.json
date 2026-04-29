@@ -1,7 +1,7 @@
 {
-  "name": "순창초 늘봄 플랫폼 V3",
-  "short_name": "늘봄V3",
-  "description": "순창초등학교 늘봄학교 출결관리 시스템 V3",
+  "name": "순창초 늘봄 플랫폼 V5",
+  "short_name": "늘봄V5",
+  "description": "순창초등학교 늘봄학교 출결관리 시스템 V5",
   "start_url": "/supabase-neulbom-attendance/",
   "scope": "/supabase-neulbom-attendance/",
   "display": "standalone",
