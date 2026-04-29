@@ -2739,21 +2739,22 @@ async function instLogin() {
     var subArea  = document.getElementById('substitute-area');
 
     if (savedRecorder) {
-      // 대체강사로 저장된 기록이 있으면 → 체크 + 이름 자동 입력
+      // DB에 대체강사 기록이 있으면 → 복원
       if (subCheck) subCheck.checked = true;
       if (subInput) subInput.value = savedRecorder;
       if (subArea) subArea.classList.add('show');
       substituteMode = true;
-      capturedSubstituteName = savedRecorder;  // ← 캡처도 갱신
-      console.log('✅ 대체강사 정보 복원:', savedRecorder);
-    } else {
-      // 대체강사 기록이 없으면 → 체크 해제 + 입력란 비우기
+      capturedSubstituteName = savedRecorder;
+      console.log('✅ 대체강사 정보 DB 복원:', savedRecorder);
+    } else if (!capturedSubstituteName) {
+      // ⭐ DB 기록도 없고 사용자가 직접 입력한 것도 없을 때만 초기화
+      // (사용자가 로그인 화면에서 직접 입력한 대체강사명은 건드리지 않음)
       if (subCheck) subCheck.checked = false;
       if (subInput) subInput.value = '';
       if (subArea) subArea.classList.remove('show');
       substituteMode = false;
-      capturedSubstituteName = '';  // ← 캡처 초기화
     }
+    // capturedSubstituteName이 있으면 (사용자 직접 입력) → 아무것도 건드리지 않음
 
     
     // ⭐ 활동일지 기존 내용 있으면 경고 배너 숨김, 없으면 표시
