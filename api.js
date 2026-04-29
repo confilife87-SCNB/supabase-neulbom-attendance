@@ -1153,12 +1153,13 @@ _toLocalDateStr(d) {
       // upsert: on_conflict 컬럼 지정 + merge-duplicates 헤더
       // (1단계에서 submissions UNIQUE 제약이 완전한 형태로 변경됐으므로 정상 작동)
       await SUPABASE.query(
-        'submissions',
-        [insertRow],
-        '?on_conflict=date,program,period',
+        'POST',                                    // ← method
+        'submissions',                             // ← table
+        [insertRow],                               // ← body
+        '?on_conflict=date,program,period',        // ← params
         {
           'Prefer': 'resolution=merge-duplicates,return=minimal'
-        }
+        }                                          // ← extraHeaders
       );
       return true;
     } catch (err) {
