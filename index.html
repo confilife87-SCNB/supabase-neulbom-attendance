@@ -755,11 +755,11 @@
       </div>
 
       <div class="period-tabs">
-        <button class="btn-period active" onclick="switchPeriod('daily')">일별</button>
-        <button class="btn-period" onclick="switchPeriod('weekly')">주별</button>
-        <button class="btn-period" onclick="switchPeriod('monthly')">월별</button>
-        <button class="btn-period" onclick="switchPeriod('semester')">학기</button>
-        <button class="btn-period" onclick="switchPeriod('yearly')">연간</button>
+        <button class="btn-period active" data-period="daily"    onclick="switchPeriod('daily')">일별</button>
+        <button class="btn-period"        data-period="weekly"   onclick="switchPeriod('weekly')">주별</button>
+        <button class="btn-period"        data-period="monthly"  onclick="switchPeriod('monthly')">월별</button>
+        <button class="btn-period"        data-period="semester" onclick="switchPeriod('semester')">학기</button>
+        <button class="btn-period"        data-period="yearly"   onclick="switchPeriod('yearly')">연간</button>
       </div>
 
       <div id="period-range" style="text-align:center; font-size:0.82rem; color:var(--text-sub); margin-bottom:12px; font-weight:600;"></div>
@@ -1756,44 +1756,8 @@ document.addEventListener("DOMContentLoaded", async function() {
     }
   }
 
-  async function autoRestoreSubstitute() {
-  var prog = document.getElementById('inst-program')?.value;
-  var day  = document.getElementById('inst-day')?.value;
-  var per  = document.getElementById('inst-period')?.value;
-  var dt   = document.getElementById('inst-date')?.value;
-  
-  // 4개 모두 선택돼야 조회
-  if (!prog || !day || !per || !dt) return;
-  
-  try {
-    var data = await API.getInstDashboardData(prog, day, per, dt);
-    var rec = data.attendanceRecorder || '';
-    
-    // "김근중(대체강사)" 형태에서 이름만 추출
-    var match = rec.match(/^(.+?)\(대체강사\)$/);
-    if (match) {
-      var subName = match[1].trim();
-      var chk = document.getElementById('substitute-check');
-      var nameInput = document.getElementById('substitute-name');
-      if (chk && nameInput) {
-        chk.checked = true;
-        nameInput.value = subName;
-        toggleSubstitute();   // substituteMode 동기화 + UI 표시
-        console.log('대체강사 자동 복원:', subName);
-      }
-    } else {
-      // 대체강사 정보가 없으면 체크 해제(이전 선택 잔여 정리)
-      var chk = document.getElementById('substitute-check');
-      if (chk && chk.checked) {
-        chk.checked = false;
-        toggleSubstitute();
-      }
-    }
-  } catch (e) {
-    console.log('대체강사 자동 복원 조회 실패:', e.message);
-  }
-}
-
+// autoRestoreSubstitute() 함수 전체 삭제
+// 대체강사 복원은 checkSubmitStatus()와 instLogin()에서 처리됨
 
   
   // ==========================================
@@ -2249,7 +2213,6 @@ async function loadHrMonthlyData() {
     // ── 섹션2: 날짜별 상세 현황 (사유 포함) ──
     rows.push(csvEscape('[날짜별 상세 현황]'));
 
-
     var dayNames = ['일','월','화','수','목','금','토'];
     var header = ['이름'];
     allDates.forEach(function(d) {
@@ -2259,8 +2222,6 @@ async function loadHrMonthlyData() {
       // 엑셀이 날짜로 인식하지 않도록 "4월20일(월)" 형식으로
       header.push(parseInt(parts[1]) + '월' + parseInt(parts[2]) + '일(' + dow + ')');
     });
-    rows.push(header.map(csvEscape).join(','));
-
 
     hrMonthlyDataCache.studentList.forEach(function(s) {
       var row = [s.name];
@@ -3088,13 +3049,7 @@ async function adminLogin() {
   function switchPeriod(type) {
     currentPeriodType = type;
     document.querySelectorAll('.btn-period').forEach(function(btn) {
-      btn.classList.remove('active');
-    });
-    // event 전역 참조 제거 → 버튼에서 직접 찾기
-    document.querySelectorAll('.btn-period').forEach(function(btn) {
-      if (btn.getAttribute('onclick') === "switchPeriod('" + type + "')") {
-        btn.classList.add('active');
-      }
+      btn.classList.toggle('active', btn.dataset.period === type);
     });
     loadAdminData();
     loadSubmissionStatus();
