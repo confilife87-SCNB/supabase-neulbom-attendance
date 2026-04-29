@@ -1756,6 +1756,46 @@ document.addEventListener("DOMContentLoaded", async function() {
     }
   }
 
+  async function autoRestoreSubstitute() {
+  var prog = document.getElementById('inst-program')?.value;
+  var day  = document.getElementById('inst-day')?.value;
+  var per  = document.getElementById('inst-period')?.value;
+  var dt   = document.getElementById('inst-date')?.value;
+  
+  // 4개 모두 선택돼야 조회
+  if (!prog || !day || !per || !dt) return;
+  
+  try {
+    var data = await API.getInstDashboardData(prog, day, per, dt);
+    var rec = data.attendanceRecorder || '';
+    
+    // "김근중(대체강사)" 형태에서 이름만 추출
+    var match = rec.match(/^(.+?)\(대체강사\)$/);
+    if (match) {
+      var subName = match[1].trim();
+      var chk = document.getElementById('substitute-check');
+      var nameInput = document.getElementById('substitute-name');
+      if (chk && nameInput) {
+        chk.checked = true;
+        nameInput.value = subName;
+        toggleSubstitute();   // substituteMode 동기화 + UI 표시
+        console.log('대체강사 자동 복원:', subName);
+      }
+    } else {
+      // 대체강사 정보가 없으면 체크 해제(이전 선택 잔여 정리)
+      var chk = document.getElementById('substitute-check');
+      if (chk && chk.checked) {
+        chk.checked = false;
+        toggleSubstitute();
+      }
+    }
+  } catch (e) {
+    console.log('대체강사 자동 복원 조회 실패:', e.message);
+  }
+}
+
+
+  
   // ==========================================
   // 🟢 담임 교원 로직
   // ==========================================
