@@ -507,7 +507,7 @@
         <label>수업 정보</label>
         <select id="prog-select" onchange="updateDays()"><option value="">프로그램 선택</option></select>
         <select id="day-select" onchange="updatePeriods()" disabled><option value="">요일 선택</option></select>
-        <select id="period-select" disabled><option value="">교시 선택</option></select>
+        <select id="period-select" onchange="checkSubmitStatus()" disabled><option value="">교시 선택</option></select>
       </div>
       <div class="select-group">
         <label>수업 날짜</label>
