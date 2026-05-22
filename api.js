@@ -275,6 +275,14 @@ async getPasswordList() {
       return recorders.length > 0 ? recorders[0] : '';
     })();
 
+    // ⭐ 대체강사 저장 시각 추출
+    const attendanceRecorderTime = (() => {
+      const row = existingArr.find(r =>
+        (r.recorder || '').includes('(대체강사)')
+      );
+      return row ? (row.check_time || '').slice(0, 5) : '';
+    })();
+
     // 학생 목록 구성
     const seen   = {};
     const result = [];
@@ -300,7 +308,7 @@ async getPasswordList() {
       return a.name.localeCompare(b.name, 'ko-KR');
     });
 
-    return { students: result, existing, activityContent, activityRecorder, attendanceRecorder };
+    return { students: result, existing, activityContent, activityRecorder, attendanceRecorder, attendanceRecorderTime };
   },
 
   async saveAttendanceData(selectedDate, progName, day, period, attendanceList, isCanceled, substituteInstructor) {
