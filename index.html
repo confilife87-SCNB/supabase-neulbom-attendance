@@ -343,7 +343,7 @@
     <button class="btn-portal admin" onclick="openLoginView('admin')"><span>🟣 늘봄지원실 (관리자)</span><span>›</span></button>
     <button class="btn-portal inst" onclick="openLoginView('inst')"><span>🔵 방과후 강사 (출석체크)</span><span>›</span></button>
     <button class="btn-portal hr" onclick="openLoginView('hr')"><span>🟢 담임 교원 (당일알림)</span><span>›</span></button>
-    <div style="font-size:0.75rem; color:var(--text-sub); margin-top:16px;">V5.2 · 2026학년도</div>
+    <div style="font-size:0.75rem; color:var(--text-sub); margin-top:16px;" id="app-version">V5.2 · 2026학년도</div>
   </div>
 
   <!-- ==========================================
@@ -1694,6 +1694,12 @@ document.addEventListener("DOMContentLoaded", async function() {
   var todayStr = new Date().toLocaleDateString('en-CA');
   document.getElementById('attendance-date').value = todayStr;
   document.getElementById('admin-date').value = todayStr;
+
+  // ✅ 버전 자동 표시
+  var versionEl = document.getElementById('app-version');
+  if (versionEl) {
+    versionEl.innerText = 'v' + CONFIG.VERSION + ' · 2026학년도';
+  }
 
   // ✅ 최초 인증 제거 — settings 테이블에서 anon key 자동 로딩
   showLoading(true);
