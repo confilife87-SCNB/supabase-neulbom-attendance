@@ -1,5 +1,7 @@
-const CACHE_NAME = 'neulbom-supabase-v3';
+// config.js를 SW에서 불러와 VERSION 연동
+importScripts('./config.js');
 
+const CACHE_NAME = `neulbom-${CONFIG.VERSION}`;
 
 const STATIC_ASSETS = [
   './',
