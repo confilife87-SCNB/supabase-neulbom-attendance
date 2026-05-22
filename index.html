@@ -515,6 +515,36 @@
         <!-- 제출 현황 뱃지 -->
         <div id="submit-status-badge" style="display:none; padding:10px 12px; border-radius:var(--radius-sm); font-size:0.84rem; font-weight:700;"></div>
       </div>
+      <!-- ⭐ 대체강사 저장 안내 배너 -->
+      <div id="substitute-warning-banner" style="
+        display: none;
+        background: rgba(253,203,110,0.15);
+        border: 1px solid #fdcb6e;
+        border-left: 4px solid #e17055;
+        border-radius: var(--radius-sm);
+        padding: 12px 14px;
+        margin-bottom: 8px;
+      ">
+        <div style="
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-bottom: 4px;
+          font-size: 0.88rem;
+          font-weight: 700;
+          color: #e17055;
+        ">
+          <span style="font-size:1.1rem;">⚠️</span>
+          <span>대체 수업 저장 안내</span>
+        </div>
+        <div style="font-size:0.84rem; font-weight:600; color:var(--text-sub); line-height:1.6;">
+          이 수업은
+          <strong id="substitute-warning-name" style="color:#e17055;"></strong>
+          강사가 대체 수업을 진행하고 저장하였습니다.
+          <span id="substitute-warning-time" style="color:var(--text-sub);"></span>
+        </div>
+      </div>
+
       <!-- ⭐ 대체강사 체크박스 (기억3) -->
       <div class="select-group">
         <label style="display:flex; align-items:center; gap:8px;">
@@ -1616,6 +1646,10 @@
     document.getElementById('substitute-name').value = '';
     substituteMode = false;
     capturedSubstituteName = '';  // ← 캡처 초기화
+
+    // ⭐ 대체강사 저장 안내 배너 초기화
+    var warnBanner = document.getElementById('substitute-warning-banner');
+    if (warnBanner) warnBanner.style.display = 'none';
     // ⭐ 활동일지 영역 초기화
     document.getElementById('inst-activity-area').style.display = 'none';
     document.getElementById('inst-activity-content').value = '';
@@ -2662,11 +2696,27 @@ async function checkSubmitStatus() {
       if (subArea) subArea.classList.add('show');
       substituteMode = true;
       console.log('✅ 대체강사 자동 복원:', savedRecorder);
+
+      // ⭐ 대체강사 저장 안내 배너 표시
+      var warnBanner   = document.getElementById('substitute-warning-banner');
+      var warnName     = document.getElementById('substitute-warning-name');
+      var warnTime     = document.getElementById('substitute-warning-time');
+      if (warnBanner && warnName) {
+        warnName.innerText = savedRecorder;
+        if (warnTime && result.attendanceRecorderTime) {
+          warnTime.innerText = '(' + result.attendanceRecorderTime + ' 저장)';
+        }
+        warnBanner.style.display = 'block';
+      }
     } else {
       if (subCheck) subCheck.checked = false;
       if (subInput) subInput.value = '';
       if (subArea) subArea.classList.remove('show');
       substituteMode = false;
+
+      // ⭐ 대체강사 저장 안내 배너 숨김
+      var warnBanner = document.getElementById('substitute-warning-banner');
+      if (warnBanner) warnBanner.style.display = 'none';
     }
 
   } catch (err) {
