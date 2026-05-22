@@ -3,8 +3,13 @@
 // 전면 수정: 버그수정 + 기능개선
 // ==========================================
 
+// ✅ Edge Function URL (API 객체 외부에 선언)
+const EDGE_FUNCTIONS = {
+  VERIFY_PASSWORD: `${CONFIG.SUPABASE_URL}/functions/v1/verify-password`
+};
+
 const API = {
-_toLocalDateStr(d) {
+  _toLocalDateStr(d) {
   return d.getFullYear() + '-' +
     String(d.getMonth() + 1).padStart(2, '0') + '-' +
     String(d.getDate()).padStart(2, '0');
@@ -44,40 +49,73 @@ _toLocalDateStr(d) {
   // 🔐 인증
   // ==========================================
 
-  async verifyPassword(roleOrProgName, inputPwd) {
-    const data = await SUPABASE.select('settings',
-      `?role=eq.${encodeURIComponent(roleOrProgName)}&select=role,password`
-    );
-    if (!data || data.length === 0) return { isValid: false };
+async verifyPassword(roleOrProgName, inputPwd) {
+  const res = await fetch(EDGE_FUNCTIONS.VERIFY_PASSWORD, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE.getKey()}`
+    },
+    body: JSON.stringify({
+      action: 'verify',
+      role: roleOrProgName,
+      password: inputPwd
+    })
+  });
 
-    const isValid = data[0].password === inputPwd;
-    if (isValid) {
-      const token = crypto.randomUUID();
-      const role = roleOrProgName === '관리자' ? 'admin'
-        : roleOrProgName.includes('담임') ? 'hr' : 'inst';
-      this.setSessionToken(token);
-      sessionStorage.setItem('sessionRole', role);
-      sessionStorage.setItem('sessionProg', roleOrProgName);
-      sessionStorage.setItem('sessionExpiry', Date.now() + 1800000);
-    }
-    return { isValid, role: isValid ? sessionStorage.getItem('sessionRole') : null };
-  },
+  if (!res.ok) throw new Error('인증 서버 오류');
+  const result = await res.json();
 
-  async updatePassword(roleOrProgName, newPwd) {
-    await SUPABASE.update('settings',
-      { password: newPwd },
-      `?role=eq.${encodeURIComponent(roleOrProgName)}`
-    );
-    return true;
-  },
+  if (result.isValid) {
+    const token = crypto.randomUUID();
+    const role = roleOrProgName === '관리자' ? 'admin'
+      : roleOrProgName.includes('담임') ? 'hr' : 'inst';
+    this.setSessionToken(token);
+    sessionStorage.setItem('sessionRole', role);
+    sessionStorage.setItem('sessionProg', roleOrProgName);
+    sessionStorage.setItem('sessionExpiry', Date.now() + 1800000);
+  }
 
-  async getPasswordList() {
-    const data = await SUPABASE.select('settings',
-      '?select=role,password&order=role&role=neq._appkey'
-    );
-    return data.map(d => ({ role: d.role, pwd: d.password }));
-  },
+  return {
+    isValid: result.isValid,
+    role: result.isValid ? sessionStorage.getItem('sessionRole') : null
+  };
+},
 
+async updatePassword(roleOrProgName, newPwd) {
+  const res = await fetch(EDGE_FUNCTIONS.VERIFY_PASSWORD, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE.getKey()}`
+    },
+    body: JSON.stringify({
+      action: 'update',
+      role: roleOrProgName,
+      newPassword: newPwd
+    })
+  });
+
+  if (!res.ok) throw new Error('비밀번호 변경 실패');
+  const result = await res.json();
+  return result.success;
+},
+async getPasswordList() {
+  const res = await fetch(EDGE_FUNCTIONS.VERIFY_PASSWORD, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE.getKey()}`
+    },
+    body: JSON.stringify({
+      action: 'list'
+    })
+  });
+
+  if (!res.ok) throw new Error('목록 조회 실패');
+  const result = await res.json();
+  return result.data || [];
+},
   // ==========================================
   // 📅 운영 예외일 관리 (operation_exceptions)
   // ==========================================
