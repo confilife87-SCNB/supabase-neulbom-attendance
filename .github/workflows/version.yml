@@ -1,0 +1,38 @@
+# .github/workflows/version.yml
+
+name: Auto Version Bump
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'config.js'  # ← 버전 자동 commit이 다시 트리거 방지
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate version (KST 기준)
+        run: |
+          VERSION=$(TZ='Asia/Seoul' date +'%Y.%m.%d.%H%M')
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "생성된 버전: ${VERSION}"
+
+      - name: Update config.js
+        run: |
+          sed -i "s/VERSION: '.*'/VERSION: '${VERSION}'/" config.js
+          cat config.js
+
+      - name: Commit & Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add config.js
+          git diff --staged --quiet || git commit -m "🔖 v${VERSION}"
+          git push
