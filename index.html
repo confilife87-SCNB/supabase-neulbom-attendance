@@ -797,14 +797,15 @@
       <!-- 운영 흐름 기준 5개 탭 -->
       <div class="admin-tabs">
         <button class="btn-tab active" id="tab-group-status" onclick="switchAdminGroup('status')">📊<br>현황</button>
-        <button class="btn-tab" id="tab-group-alert" onclick="switchAdminGroup('alert')">📬<br>미제출·알림</button>
+        <button class="btn-tab" id="tab-group-alert" onclick="switchAdminGroup('alert')">📋<br>제출현황·알림</button>
         <button class="btn-tab" id="tab-group-edit" onclick="switchAdminGroup('edit')">✏️<br>수정·설정</button>
         <button class="btn-tab" id="tab-group-msg" onclick="switchAdminGroup('msg')">📩<br>결석안내</button>
         <button class="btn-tab" id="tab-group-doc" onclick="switchAdminGroup('doc')">📄<br>서류·마감</button>
       </div>
 
       <div id="admin-alert-subnav" class="hr-tabs" style="display:none; margin-bottom:12px;">
-        <button class="btn-hr-tab active-purple" id="alert-sub-submit" onclick="switchAlertSubTab('submit')" style="border-color:var(--purple); color:var(--purple-deep);">📬 미제출</button>
+        <button class="btn-hr-tab active-purple" id="alert-sub-status" onclick="switchAlertSubTab('status')" style="border-color:var(--purple); color:var(--purple-deep);">✅ 제출현황</button>
+        <button class="btn-hr-tab" id="alert-sub-submit" onclick="switchAlertSubTab('submit')" style="border-color:var(--purple); color:var(--purple-deep);">📬 미제출</button>
         <button class="btn-hr-tab" id="alert-sub-student-manage" onclick="switchAlertSubTab('student-manage')" style="border-color:var(--purple); color:var(--purple-deep);">📢 지원실 알림</button>
       </div>
 
@@ -849,7 +850,46 @@
         </div>
         <div style="overflow-x:auto;"><table class="admin-table" id="admin-student-table"></table></div>
       </div>
+      
+<!-- ✅ 제출현황 탭 -->
+<div id="admin-submit-status-area" class="tab-content" style="display:none;">
+  <div class="section-title" style="color:var(--purple-deep); font-size:0.95rem;">✅ 제출 현황</div>
 
+  <!-- 요약 통계 -->
+  <div class="status-dashboard" style="grid-template-columns:repeat(3,1fr); margin-bottom:16px;">
+    <div class="stat-box">
+      <div class="stat-num" id="status-total">0</div>
+      <div class="stat-label">전체 수업</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num" id="status-done" style="color:var(--green-deep);">0</div>
+      <div class="stat-label">완료</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num" id="status-pending" style="color:var(--red-deep);">0</div>
+      <div class="stat-label">미완료</div>
+    </div>
+  </div>
+
+  <!-- 프로그램 필터 -->
+  <div class="filter-bar" style="margin-bottom:12px;">
+    <select id="status-prog-filter" onchange="renderSubmitStatusList()" style="flex:1;">
+      <option value="all">전체 프로그램</option>
+    </select>
+  </div>
+
+  <!-- 요약 카드 -->
+  <div id="status-summary-cards" style="margin-bottom:16px;"></div>
+
+  <!-- 상세 표 -->
+  <div class="section-title" style="color:var(--text-sub); font-size:0.88rem; margin-top:8px;">
+    📅 날짜별 상세
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="admin-table" id="status-detail-table"></table>
+  </div>
+</div>
+      
       <!-- ⭐ 탭4: 미제출 현황 (기억13) -->
       <div id="admin-submit-area" class="tab-content" style="display:none;">
         <div class="section-title" style="color:var(--purple-deep); font-size:0.95rem;">📬 제출 현황</div>
@@ -3179,7 +3219,7 @@ async function adminLogin() {
   }
 
   function hideAdminAreas() {
-    var allAreas = ['chart', 'prog', 'student', 'submit', 'edit', 'msg', 'pwd', 'operation', 'doc', 'student-manage'];
+  var allAreas = ['chart', 'prog', 'student', 'submit-status', 'submit', 'edit', 'msg', 'pwd', 'operation', 'doc', 'student-manage'];
     allAreas.forEach(function(t) {
       var area = document.getElementById('admin-' + t + '-area');
       if (area) area.style.display = 'none';
@@ -3216,7 +3256,7 @@ async function adminLogin() {
     } else if (group === 'alert') {
       var alertSubnav = document.getElementById('admin-alert-subnav');
       if (alertSubnav) alertSubnav.style.display = 'flex';
-      switchAlertSubTab('submit');
+      switchAlertSubTab('status');
     } else if (group === 'edit') {
       var editSubnav = document.getElementById('admin-edit-subnav');
       if (editSubnav) editSubnav.style.display = 'flex';
@@ -3230,17 +3270,21 @@ async function adminLogin() {
     }
   }
 
-  function switchAlertSubTab(tab) {
-    setPurpleSubtabActive('alert-sub-', tab, ['submit', 'student-manage']);
+function switchAlertSubTab(tab) {
+  setPurpleSubtabActive('alert-sub-', tab, ['status', 'submit', 'student-manage']);
 
-    var submitArea = document.getElementById('admin-submit-area');
-    var studentManageArea = document.getElementById('admin-student-manage-area');
-    if (submitArea) submitArea.style.display = (tab === 'submit') ? 'block' : 'none';
-    if (studentManageArea) studentManageArea.style.display = (tab === 'student-manage') ? 'block' : 'none';
+  var statusArea        = document.getElementById('admin-submit-status-area');
+  var submitArea        = document.getElementById('admin-submit-area');
+  var studentManageArea = document.getElementById('admin-student-manage-area');
 
-    if (tab === 'submit') loadSubmissionStatus();
-    if (tab === 'student-manage') initAdminStudentManageTab();
-  }
+  if (statusArea)        statusArea.style.display        = (tab === 'status')         ? 'block' : 'none';
+  if (submitArea)        submitArea.style.display        = (tab === 'submit')         ? 'block' : 'none';
+  if (studentManageArea) studentManageArea.style.display = (tab === 'student-manage') ? 'block' : 'none';
+
+  if (tab === 'status')         renderSubmitStatusList();
+  if (tab === 'submit')         loadSubmissionStatus();
+  if (tab === 'student-manage') initAdminStudentManageTab();
+}
 
   function switchEditMainTab(tab) {
     setPurpleSubtabActive('edit-main-', tab, ['edit', 'pwd', 'operation']);
@@ -3626,6 +3670,202 @@ async function loadSubmissionStatus() {
 
     listDiv.innerHTML = html;
   }
+
+  function renderSubmitStatusList() {
+  if (!submitRawData) {
+    loadSubmissionStatus();
+    return;
+  }
+
+  // ── 전체 목록 합치기 (완료 + 미완료) ──
+  var allItems = (submitRawData.submitted || []).concat(submitRawData.notSubmitted || []);
+
+  // ── 통계 업데이트 ──
+  var total   = allItems.length;
+  var done    = (submitRawData.submitted || []).length;
+  var pending = (submitRawData.notSubmitted || []).length;
+
+  document.getElementById('status-total').innerText   = total;
+  document.getElementById('status-done').innerText    = done;
+  document.getElementById('status-pending').innerText = pending;
+
+  // ── 프로그램 필터 옵션 갱신 ──
+  var progFilter = document.getElementById('status-prog-filter');
+  var currentVal = progFilter.value;
+  var progs = {};
+  allItems.forEach(function(item) { progs[item.prog] = true; });
+  progFilter.innerHTML = '<option value="all">전체 프로그램</option>';
+  Object.keys(progs).sort().forEach(function(p) {
+    var opt = document.createElement('option');
+    opt.value = p; opt.text = p;
+    progFilter.appendChild(opt);
+  });
+  if (currentVal && progs[currentVal]) progFilter.value = currentVal;
+
+  // ── 필터 적용 ──
+  var filterProg = progFilter.value;
+  var filtered = allItems.filter(function(item) {
+    return filterProg === 'all' || item.prog === filterProg;
+  });
+
+  // ── 요약 카드 렌더링 ──
+  renderStatusSummaryCards(filtered);
+
+  // ── 상세 표 렌더링 ──
+  renderStatusDetailTable(filtered);
+}
+
+// ── 요약 카드 ──
+function renderStatusSummaryCards(items) {
+  var cardDiv = document.getElementById('status-summary-cards');
+
+  // 프로그램+교시별 집계
+  var progPeriodMap = {};
+  items.forEach(function(item) {
+    var key = item.prog + '|' + item.period;
+    if (!progPeriodMap[key]) {
+      progPeriodMap[key] = {
+        prog:       item.prog,
+        period:     item.period,
+        instructor: item.instructor || '',
+        total:      0,
+        attendDone: 0,
+        actDone:    0,
+        bothDone:   0
+      };
+    }
+    var s = progPeriodMap[key];
+    s.total++;
+
+    function cleanSt(val) {
+      return String(val).replace(/\s/g,'').replace(/[^\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/g,'');
+    }
+    var aDone = cleanSt(item.attendStatus).indexOf('제출완료')  !== -1 || cleanSt(item.attendStatus).indexOf('휴강') !== -1;
+    var bDone = cleanSt(item.activityStatus).indexOf('제출완료') !== -1 || cleanSt(item.activityStatus).indexOf('휴강') !== -1;
+
+    if (aDone) s.attendDone++;
+    if (bDone) s.actDone++;
+    if (aDone && bDone) s.bothDone++;
+  });
+
+  // 프로그램별로 그룹핑
+  var progGroups = {};
+  Object.values(progPeriodMap).forEach(function(s) {
+    if (!progGroups[s.prog]) progGroups[s.prog] = [];
+    progGroups[s.prog].push(s);
+  });
+
+  var html = '';
+  Object.keys(progGroups).sort().forEach(function(prog) {
+    var periods = progGroups[prog].sort(function(a, b) {
+      return a.period.localeCompare(b.period);
+    });
+    var instructor = periods[0].instructor;
+
+    html += '<div style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin-bottom:10px; box-shadow:var(--shadow);">';
+    html += '  <div style="font-weight:800; font-size:0.95rem; color:var(--purple-deep); margin-bottom:10px;">';
+    html += '    ' + escapeHtml(prog);
+    if (instructor) html += ' <span style="font-size:0.78rem; font-weight:600; color:var(--text-sub);">· ' + escapeHtml(instructor) + '</span>';
+    html += '  </div>';
+
+    periods.forEach(function(s) {
+      var rate     = s.total > 0 ? Math.round((s.bothDone / s.total) * 100) : 0;
+      var barColor = rate === 100 ? 'var(--green-deep)' : rate >= 70 ? '#fdcb6e' : 'var(--red-deep)';
+      var icon     = rate === 100 ? '✅' : rate >= 70 ? '⚠️' : '🔴';
+
+      html += '  <div style="margin-bottom:8px;">';
+      html += '    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">';
+      html += '      <span style="font-size:0.82rem; font-weight:700;">' + escapeHtml(s.period) + '</span>';
+      html += '      <span style="font-size:0.82rem;">';
+      html += '        <span style="color:var(--green-deep);">출결 ' + s.attendDone + '/' + s.total + '</span>';
+      html += '        &nbsp;·&nbsp;';
+      html += '        <span style="color:var(--blue-deep);">활동 ' + s.actDone + '/' + s.total + '</span>';
+      html += '        &nbsp;' + icon + ' <strong style="color:' + barColor + ';">' + rate + '%</strong>';
+      html += '      </span>';
+      html += '    </div>';
+
+      // 프로그레스 바
+      html += '    <div style="background:var(--border); border-radius:4px; height:8px; overflow:hidden;">';
+      html += '      <div style="width:' + rate + '%; height:100%; background:' + barColor + '; border-radius:4px; transition:width 0.3s;"></div>';
+      html += '    </div>';
+      html += '  </div>';
+    });
+
+    html += '</div>';
+  });
+
+  if (html === '') {
+    html = '<div style="text-align:center; padding:16px; color:var(--text-sub);">데이터가 없습니다.</div>';
+  }
+
+  cardDiv.innerHTML = html;
+}
+
+// ── 상세 표 ──
+function renderStatusDetailTable(items) {
+  var table = document.getElementById('status-detail-table');
+
+  if (items.length === 0) {
+    table.innerHTML = '<tr><td colspan="6" style="padding:20px; color:var(--text-sub);">데이터가 없습니다.</td></tr>';
+    return;
+  }
+
+  // 날짜 → 프로그램 → 교시 순 정렬
+  var sorted = items.slice().sort(function(a, b) {
+    return a.date.localeCompare(b.date)
+        || a.prog.localeCompare(b.prog, 'ko-KR')
+        || a.period.localeCompare(b.period);
+  });
+
+  function cleanSt(val) {
+    return String(val).replace(/\s/g,'').replace(/[^\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/g,'');
+  }
+
+  function statusBadge(val) {
+    var cleaned = cleanSt(val);
+    if (cleaned.indexOf('휴강')    !== -1) return '<span style="color:var(--text-sub); font-weight:700;">🚫 휴강</span>';
+    if (cleaned.indexOf('제출완료') !== -1) return '<span style="color:var(--green-deep); font-weight:700;">✅ 완료</span>';
+    return '<span style="color:var(--red-deep); font-weight:700;">❌ 미제출</span>';
+  }
+
+  function rowBg(item) {
+    var aDone = cleanSt(item.attendStatus).indexOf('제출완료')  !== -1 || cleanSt(item.attendStatus).indexOf('휴강') !== -1;
+    var bDone = cleanSt(item.activityStatus).indexOf('제출완료') !== -1 || cleanSt(item.activityStatus).indexOf('휴강') !== -1;
+    if (aDone && bDone)   return 'rgba(0,184,148,0.05)';
+    if (aDone || bDone)   return 'rgba(253,203,110,0.10)';
+    return 'rgba(214,48,49,0.05)';
+  }
+
+  var dayNames = ['일','월','화','수','목','금','토'];
+
+  var html = '<tr>';
+  html += '<th>날짜</th>';
+  html += '<th>프로그램</th>';
+  html += '<th>교시</th>';
+  html += '<th>강사</th>';
+  html += '<th>출결</th>';
+  html += '<th>활동일지</th>';
+  html += '</tr>';
+
+  sorted.forEach(function(item) {
+    var dateObj  = new Date(item.date + 'T00:00:00');
+    var dow      = dayNames[dateObj.getDay()];
+    var dateParts = item.date.split('-');
+    var dateStr  = parseInt(dateParts[1]) + '/' + parseInt(dateParts[2]) + '(' + dow + ')';
+    var bg       = rowBg(item);
+
+    html += '<tr style="background:' + bg + ';">';
+    html += '<td style="white-space:nowrap; font-weight:600;">' + escapeHtml(dateStr) + '</td>';
+    html += '<td style="font-size:0.78rem; text-align:left;">' + escapeHtml(item.prog) + '</td>';
+    html += '<td>' + escapeHtml(item.period) + '</td>';
+    html += '<td style="font-size:0.78rem;">' + escapeHtml(item.instructor || '-') + '</td>';
+    html += '<td>' + statusBadge(item.attendStatus) + '</td>';
+    html += '<td>' + statusBadge(item.activityStatus) + '</td>';
+    html += '</tr>';
+  });
+
+  table.innerHTML = html;
+}
 
   // ==========================================
   // 🟣 수정 탭 (기억14: 프로그램/교시 필터, 기억22: recordKey)
