@@ -3042,7 +3042,16 @@ async function instLogin() {
         permNote: s.permNote, dailyNote: s.dailyNote,
         attendanceRate: s.attendanceRate, contact: s.contact || '',
         status: finalStatus, reason: finalReason,
-        classNotice: s.classNotice || ''
+        classNotice: s.classNotice || '',
+        // ⭐ 신규: 월별 통계 필드 추가
+        monthlyAbsent:     s.monthlyAbsent     || 0,
+        monthlyPresent:    s.monthlyPresent    || 0,
+        monthlyLate:       s.monthlyLate       || 0,
+        monthlyLeave:      s.monthlyLeave      || 0,
+        monthlyTotal:      s.monthlyTotal      || 0,
+        monthlyRecords:    s.monthlyRecords    || [],
+        consecutiveAbsent: s.consecutiveAbsent || 0,
+        monthLabel:        s.monthLabel        || ''
       };
     });
 
