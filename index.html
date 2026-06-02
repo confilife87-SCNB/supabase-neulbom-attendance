@@ -135,6 +135,122 @@
     .badge-green { background: rgba(0,184,148,0.1); color: var(--green-deep); }
     .badge-orange { background: rgba(253,203,110,0.2); color: #e17055; }
 
+        /* ⭐ 신규: 결석 뱃지 4단계 색상 */
+    .absent-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    .absent-badge:active { opacity: 0.7; }
+    .absent-badge.level-1 {
+      background: rgba(253,203,110,0.25);
+      color: #d4a000;
+      border: 1px solid rgba(253,203,110,0.6);
+    }
+    .absent-badge.level-2 {
+      background: rgba(9,132,227,0.12);
+      color: #0984e3;
+      border: 1px solid rgba(9,132,227,0.35);
+    }
+    .absent-badge.level-3 {
+      background: rgba(225,112,85,0.15);
+      color: #e17055;
+      border: 1px solid rgba(225,112,85,0.4);
+    }
+    .absent-badge.level-4 {
+      background: rgba(214,48,49,0.12);
+      color: #d63031;
+      border: 1px solid rgba(214,48,49,0.4);
+    }
+
+    /* ⭐ 신규: 학생 이력 팝업 모달 */
+    .history-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5);
+      z-index: 200;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    .history-modal-content {
+      background: var(--surface);
+      width: 100%;
+      max-width: 400px;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+      max-height: 85vh;
+      overflow-y: auto;
+    }
+    .history-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .history-summary-item {
+      text-align: center;
+      padding: 10px 4px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+    }
+    .history-summary-item .h-num {
+      font-size: 1.3rem;
+      font-weight: 800;
+    }
+    .history-summary-item .h-label {
+      font-size: 0.68rem;
+      color: var(--text-sub);
+      margin-top: 2px;
+    }
+    .history-record-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.85rem;
+    }
+    .history-record-item:last-child { border-bottom: none; }
+    .history-record-date {
+      font-weight: 700;
+      min-width: 72px;
+      color: var(--text);
+    }
+    .history-record-status {
+      font-weight: 700;
+      min-width: 28px;
+    }
+    .history-record-reason {
+      color: var(--text-sub);
+      font-size: 0.8rem;
+      flex: 1;
+    }
+    .consecutive-banner {
+      background: rgba(214,48,49,0.08);
+      border: 1px solid rgba(214,48,49,0.3);
+      border-radius: var(--radius-sm);
+      padding: 8px 12px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--red-deep);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
     .btn-group { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 6px; }
     /* ⭐ 모바일 터치 영역 확대 (기억20) */
     .btn-status { padding: 12px 0; font-size: 0.88rem; font-weight: 700; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); cursor: pointer; transition: 0.15s; text-align: center; min-height: 44px; }
@@ -682,6 +798,95 @@
     </div>
   </div>
 
+  <!-- ⭐ 신규: 학생 출결 이력 팝업 모달 -->
+  <div id="student-history-modal" class="history-modal-overlay"
+    onclick="if(event.target===this) closeStudentHistoryModal()">
+    <div class="history-modal-content">
+
+      <!-- 헤더 -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <div class="modal-title" id="history-modal-title" style="border:none; margin:0; padding:0;">
+          학생 출결 이력
+        </div>
+        <button onclick="closeStudentHistoryModal()"
+          style="background:none; border:none; font-size:1.3rem; cursor:pointer; color:var(--text-sub); padding:4px;">
+          ✕
+        </button>
+      </div>
+
+      <!-- 월 표시 -->
+      <div id="history-modal-month"
+        style="font-size:0.8rem; color:var(--text-sub); margin-bottom:12px; font-weight:600;">
+      </div>
+
+      <!-- 연속 결석 배너 (해당시만 표시) -->
+      <div id="history-consecutive-banner" class="consecutive-banner" style="display:none;">
+        🔁 <span id="history-consecutive-text"></span>
+      </div>
+
+      <!-- 요약 통계 -->
+      <div class="history-summary-grid">
+        <div class="history-summary-item">
+          <div class="h-num" id="h-present" style="color:var(--green-deep);">0</div>
+          <div class="h-label">출석</div>
+        </div>
+        <div class="history-summary-item">
+          <div class="h-num" id="h-absent" style="color:var(--red-deep);">0</div>
+          <div class="h-label">결석</div>
+        </div>
+        <div class="history-summary-item">
+          <div class="h-num" id="h-late" style="color:#e17055;">0</div>
+          <div class="h-label">지각</div>
+        </div>
+        <div class="history-summary-item">
+          <div class="h-num" id="h-leave" style="color:#e17055;">0</div>
+          <div class="h-label">조퇴</div>
+        </div>
+      </div>
+
+      <!-- 출석률 바 -->
+      <div style="margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; font-size:0.78rem;
+          color:var(--text-sub); margin-bottom:4px; font-weight:600;">
+          <span>출석률</span>
+          <span id="h-rate">0%</span>
+        </div>
+        <div style="background:var(--border); border-radius:4px; height:8px; overflow:hidden;">
+          <div id="h-rate-bar"
+            style="height:100%; border-radius:4px; transition:width 0.4s; width:0%;">
+          </div>
+        </div>
+      </div>
+
+      <!-- 결석/지각/조퇴 날짜 이력 -->
+      <div style="font-size:0.82rem; font-weight:700; color:var(--text-sub);
+        margin-bottom:8px;">
+        📅 결석 · 지각 · 조퇴 이력
+      </div>
+      <div id="history-records-list"></div>
+
+      <!-- 전화번호 -->
+      <div id="history-contact-area"
+        style="display:none; margin-top:16px; padding-top:14px;
+          border-top:1px solid var(--border);">
+        <div style="font-size:0.82rem; font-weight:700; color:var(--text-sub); margin-bottom:8px;">
+          📞 학부모 연락처
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <span id="history-contact-num"
+            style="font-size:0.95rem; font-weight:700; flex:1; color:var(--text);">
+          </span>
+          <button class="btn-action blue"
+            style="width:auto; margin:0; padding:8px 16px; font-size:0.82rem;"
+            onclick="handleContactFromHistory()">
+            📞 전화 / 복사
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  
   <!-- 🔵 강사 소급입력 모달 -->
   <div id="inst-missing-modal" class="modal-overlay" onclick="if(event.target===this) closeInstMissingModal()">
     <div class="modal-content">
@@ -2996,6 +3201,27 @@ async function instLogin() {
       // ⭐ 기억8 수정: 출결상태별 카드 색상 강조
       var statusClass = (s.status !== '출석') ? ' status-' + s.status : '';
       var dailyClass = hasDailyNote ? ' has-daily-note' : '';
+      // ⭐ 신규: 결석 뱃지 생성
+      var absentBadgeHtml = '';
+      if (s.monthlyAbsent > 0) {
+        var badgeLevel = s.monthlyAbsent >= 4 ? 'level-4'
+                       : s.monthlyAbsent === 3 ? 'level-3'
+                       : s.monthlyAbsent === 2 ? 'level-2'
+                       : 'level-1';
+        var badgeText  = s.monthlyAbsent >= 4
+                       ? '결석 ' + s.monthlyAbsent + '회 ⚠️'
+                       : '결석 ' + s.monthlyAbsent + '회';
+        var consecutiveHtml = s.consecutiveAbsent >= 2
+                       ? ' <span style="font-size:0.72rem;">🔁' + s.consecutiveAbsent + '</span>'
+                       : '';
+        absentBadgeHtml =
+          '<span class="absent-badge ' + badgeLevel + '"' +
+          ' onclick="event.stopPropagation(); openStudentHistoryModal(' + idx + ')"' +
+          ' title="클릭하면 월별 이력을 볼 수 있습니다">' +
+          badgeText + consecutiveHtml +
+          '</span>';
+      }
+
       var card = document.createElement('div');
       card.className = 'student-card' + compactClass + statusClass + dailyClass;
       card.innerHTML =
@@ -3003,7 +3229,11 @@ async function instLogin() {
           '<span>🧑‍🎓 ' + escapeHtml(s.grade) + '-' + escapeHtml(s.classNum) + ' ' + escapeHtml(s.name) +
           (s.contact ? ' <span style="font-size:0.75rem; color:var(--blue-deep); font-weight:600; cursor:pointer;" onclick="handleContact(\'' + escapeHtml(s.contact).replace(/'/g, "\\'") + '\')">📞' + escapeHtml(s.contact) + '</span>' : '') +
           '</span>' +
-          '<span class="badge ' + rateBadge + '">' + s.attendanceRate + '%</span>' +
+          // ⭐ 출석률 뱃지 + 결석 뱃지 같이 표시
+          '<div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">' +
+            '<span class="badge ' + rateBadge + '">' + s.attendanceRate + '%</span>' +
+            absentBadgeHtml +
+          '</div>' +
         '</div>' +
         (s.classNotice && s.classNotice.trim() !== '' ? '<div class="class-notice-individual" style="background:rgba(108,92,231,0.08); border-left:3px solid var(--purple-deep); padding:6px 10px; border-radius:var(--radius-sm); margin:6px 0; font-size:0.82rem; font-weight:600; color:var(--purple-deep);">📢 담임 공지: ' + escapeHtml(s.classNotice) + '</div>' : '') +
         noteHtml +
@@ -3153,6 +3383,113 @@ async function instLogin() {
   function closeSaveSummary() {
     document.getElementById('save-summary-modal').style.display = 'none';
     goHome();
+  }
+
+    // ⭐ 신규: 학생 출결 이력 팝업
+  var historyContactNum = '';
+
+  function openStudentHistoryModal(idx) {
+    var s = studentsData[idx];
+    if (!s) return;
+
+    var dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+
+    // 헤더
+    document.getElementById('history-modal-title').innerText =
+      s.grade + '-' + s.classNum + ' ' + s.name + ' — 출결 이력';
+    document.getElementById('history-modal-month').innerText =
+      '📅 ' + (s.monthLabel || '이번달') + ' 기준';
+
+    // 연속 결석 배너
+    var consBanner = document.getElementById('history-consecutive-banner');
+    var consText   = document.getElementById('history-consecutive-text');
+    if (s.consecutiveAbsent >= 2) {
+      consText.innerText = '최근 ' + s.consecutiveAbsent + '회 연속 결석 진행 중';
+      consBanner.style.display = 'flex';
+    } else {
+      consBanner.style.display = 'none';
+    }
+
+    // 요약 통계
+    document.getElementById('h-present').innerText = s.monthlyPresent || 0;
+    document.getElementById('h-absent').innerText  = s.monthlyAbsent  || 0;
+    document.getElementById('h-late').innerText    = s.monthlyLate    || 0;
+    document.getElementById('h-leave').innerText   = s.monthlyLeave   || 0;
+
+    // 출석률 바
+    var rate     = s.attendanceRate || 100;
+    var barColor = rate >= 90 ? 'var(--green-deep)'
+                 : rate >= 80 ? '#fdcb6e'
+                 : rate >= 70 ? '#e17055'
+                 : 'var(--red-deep)';
+    document.getElementById('h-rate').innerText          = rate + '%';
+    document.getElementById('h-rate-bar').style.width     = rate + '%';
+    document.getElementById('h-rate-bar').style.background = barColor;
+
+    // 날짜별 이력 렌더링
+    var listDiv  = document.getElementById('history-records-list');
+    var records  = s.monthlyRecords || [];
+
+    if (records.length === 0) {
+      listDiv.innerHTML =
+        '<div style="text-align:center; padding:16px; color:var(--text-sub); font-size:0.85rem;">' +
+        '이번달 결석 · 지각 · 조퇴 이력이 없습니다.' +
+        '</div>';
+    } else {
+      var html = '';
+      records.forEach(function(r) {
+        var dateObj    = new Date(r.date + 'T00:00:00');
+        var mm         = parseInt(r.date.split('-')[1]);
+        var dd         = parseInt(r.date.split('-')[2]);
+        var dow        = dayNames[dateObj.getDay()];
+        var dateStr    = mm + '/' + dd + '(' + dow + ')';
+
+        var statusEmoji = r.status === '결석' ? '🔴'
+                        : r.status === '지각' ? '🟡'
+                        : '🟠';
+        var statusColor = r.status === '결석' ? 'var(--red-deep)'
+                        : r.status === '지각' ? '#d4a000'
+                        : '#e17055';
+        var reasonText  = r.reason && r.reason.trim()
+                        ? r.reason
+                        : '사유 미등록';
+
+        html +=
+          '<div class="history-record-item">' +
+            '<span class="history-record-date">' + statusEmoji + ' ' + dateStr + '</span>' +
+            '<span class="history-record-status" style="color:' + statusColor + ';">' +
+              r.status +
+            '</span>' +
+            '<span class="history-record-reason">— ' + escapeHtml(reasonText) + '</span>' +
+          '</div>';
+      });
+      listDiv.innerHTML = html;
+    }
+
+    // 전화번호
+    var contactArea = document.getElementById('history-contact-area');
+    var contactNum  = document.getElementById('history-contact-num');
+    historyContactNum = s.contact || '';
+
+    if (historyContactNum) {
+      contactNum.innerText  = historyContactNum;
+      contactArea.style.display = 'block';
+    } else {
+      contactArea.style.display = 'none';
+    }
+
+    // 팝업 열기
+    document.getElementById('student-history-modal').style.display = 'flex';
+  }
+
+  function closeStudentHistoryModal() {
+    document.getElementById('student-history-modal').style.display = 'none';
+    historyContactNum = '';
+  }
+
+  function handleContactFromHistory() {
+    if (!historyContactNum) return;
+    handleContact(historyContactNum);
   }
 
 async function cancelClass() {
