@@ -1,16 +1,18 @@
-# .github/workflows/version.yml
-
 name: Auto Version Bump
 
 on:
   push:
     branches: [main]
     paths-ignore:
-      - 'config.js'  # ← 버전 자동 commit이 다시 트리거 방지
+      - 'config.js'
 
 jobs:
   version:
     runs-on: ubuntu-latest
+
+    # ⭐ 쓰기 권한 명시적 부여
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
