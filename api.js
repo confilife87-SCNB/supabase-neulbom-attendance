@@ -208,8 +208,16 @@ async getPasswordList() {
     // ⭐ B3 수정: day 정규화 통일
     const normalizedDay = this._normalizeDay(targetDay);
 
-    // ⭐ 병렬 처리로 성능 개선
-    const [students, existingArr, memos, contacts, actLogs] = await Promise.all([
+    // ⭐ 이번달 범위 계산
+    const selDate    = new Date(selectedDate + 'T00:00:00');
+    const monthLabel = `${selDate.getMonth() + 1}월`;
+    const yearStr    = selDate.getFullYear();
+    const monthNum   = String(selDate.getMonth() + 1).padStart(2, '0');
+    const monthStart = `${yearStr}-${monthNum}-01`;
+    const monthEnd   = `${yearStr}-${monthNum}-${String(new Date(yearStr, selDate.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
+
+    // ⭐ 병렬 처리로 성능 개선 (월별 출결통계 쿼리 1개 추가)
+    const [students, existingArr, memos, contacts, actLogs, monthlyAttendance] = await Promise.all([
       SUPABASE.select('students',
         `?program=eq.${encodeURIComponent(progName)}&day=eq.${encodeURIComponent(normalizedDay)}&period=eq.${encodeURIComponent(targetPeriod)}`
       ),
@@ -220,6 +228,10 @@ async getPasswordList() {
       SUPABASE.select('contacts', '?select=grade,class_num,name,phone'),
       SUPABASE.select('activity_logs',
         `?date=eq.${selectedDate}&program=eq.${encodeURIComponent(progName)}&order=created_at.desc`
+      ),
+      // ⭐ 신규: 이번달 전체 출결 (휴강 제외)
+      SUPABASE.select('attendance',
+        `?program=eq.${encodeURIComponent(progName)}&date=gte.${monthStart}&date=lte.${monthEnd}&status=neq.휴강&order=date.asc`
       )
     ]);
 
@@ -283,6 +295,52 @@ async getPasswordList() {
       return row ? (row.check_time || '').slice(0, 5) : '';
     })();
 
+    // ⭐ 신규: 학생별 월별 출결 통계 맵 생성
+    const monthlyStatsMap = {};
+    monthlyAttendance.forEach(r => {
+      const key = `${r.grade}_${r.class_num}_${r.name}`;
+      if (!monthlyStatsMap[key]) {
+        monthlyStatsMap[key] = {
+          present: 0, absent: 0, late: 0, leave: 0, total: 0,
+          records: [],       // 날짜별 상세 이력
+          consecutiveAbsent: 0  // 연속 결석 횟수
+        };
+      }
+      const stat = monthlyStatsMap[key];
+      stat.total++;
+      if      (r.status === '출석') stat.present++;
+      else if (r.status === '결석') stat.absent++;
+      else if (r.status === '지각') stat.late++;
+      else if (r.status === '조퇴') stat.leave++;
+
+      // 날짜별 상세 이력 저장 (출석 제외, 결석/지각/조퇴만)
+      if (r.status !== '출석') {
+        stat.records.push({
+          date:   r.date,
+          status: r.status,
+          reason: r.reason || ''
+        });
+      }
+    });
+
+    // ⭐ 신규: 연속 결석 계산 (날짜 오름차순 기준 마지막 연속 결석 횟수)
+    Object.keys(monthlyStatsMap).forEach(key => {
+      const stat = monthlyStatsMap[key];
+      // 전체 이력(출석 포함) 날짜 기준 연속 결석 계산
+      const allRecords = monthlyAttendance.filter(r =>
+        `${r.grade}_${r.class_num}_${r.name}` === key
+      );
+      let consecutive = 0;
+      for (let i = allRecords.length - 1; i >= 0; i--) {
+        if (allRecords[i].status === '결석') {
+          consecutive++;
+        } else {
+          break;
+        }
+      }
+      stat.consecutiveAbsent = consecutive;
+    });
+
     // 학생 목록 구성
     const seen   = {};
     const result = [];
@@ -290,20 +348,36 @@ async getPasswordList() {
       const key = `${s.grade}_${s.class_num}_${s.name}`;
       if (seen[key]) return;
       seen[key] = true;
+      const monthlyStat = monthlyStatsMap[key] || {
+        present: 0, absent: 0, late: 0, leave: 0, total: 0,
+        records: [], consecutiveAbsent: 0
+      };
       result.push({
-        grade:          s.grade,
-        classNum:       s.class_num,
-        name:           s.name,
-        permNote:       s.perm_note || '',
-        dailyNote:      memoMap[key] || '',
-        attendanceRate: 100,
-        contact:        contactMap[key] || '',
-        classNotice:    noticeMap[`${s.grade}_${s.class_num}`] || ''
+        grade:             s.grade,
+        classNum:          s.class_num,
+        name:              s.name,
+        permNote:          s.perm_note || '',
+        dailyNote:         memoMap[key] || '',
+        // ⭐ 출석률 실제 데이터로 교체
+        attendanceRate:    monthlyStat.total > 0
+                             ? Math.round((monthlyStat.present / monthlyStat.total) * 100)
+                             : 100,
+        contact:           contactMap[key] || '',
+        classNotice:       noticeMap[`${s.grade}_${s.class_num}`] || '',
+        // ⭐ 신규: 월별 통계
+        monthlyAbsent:     monthlyStat.absent,
+        monthlyLate:       monthlyStat.late,
+        monthlyLeave:      monthlyStat.leave,
+        monthlyPresent:    monthlyStat.present,
+        monthlyTotal:      monthlyStat.total,
+        monthlyRecords:    monthlyStat.records,
+        consecutiveAbsent: monthlyStat.consecutiveAbsent,
+        monthLabel
       });
     });
 
     result.sort((a, b) => {
-      if (a.grade   !== b.grade)   return a.grade   - b.grade;
+      if (a.grade    !== b.grade)    return a.grade    - b.grade;
       if (a.classNum !== b.classNum) return a.classNum - b.classNum;
       return a.name.localeCompare(b.name, 'ko-KR');
     });
