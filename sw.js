@@ -69,5 +69,12 @@ self.addEventListener('fetch', e => {
 
 // ── 새 버전 감지 ──
 self.addEventListener('message', e => {
-  if (e.data === 'skipWaiting') self.skipWaiting();
+  if (e.data === 'skipWaiting') {
+    self.skipWaiting();
+  }
+});
+
+// ── 자동 업데이트: install 즉시 활성화 ──
+self.addEventListener('install', e => {
+  self.skipWaiting();
 });
